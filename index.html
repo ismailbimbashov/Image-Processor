@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <link rel="icon" type="image/x-icon" href="/style/image/image-.png" />
+    <title>Image Processor</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- JSZip for batch ZIP downloads -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Custom styles -->
+    <link
+      rel="stylesheet"
+      href="./style.css"
+    />
+  </head>
+  <body
+    class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 bg-[radial-gradient(circle_at_top,_#1f2937,_#020617)]"
+  >
+    <main
+      class="w-full max-w-3xl bg-white/10 border border-white/10 rounded-3xl shadow-2xl shadow-slate-950/70 backdrop-blur-xl px-5 py-6 sm:px-8 sm:py-8"
+      aria-labelledby="app-title"
+    >
+      <header class="mb-6 sm:mb-8">
+        <h1
+          id="app-title"
+          class="text-2xl sm:text-3xl font-semibold tracking-tight text-white"
+        >
+          Glass Image Processor
+        </h1>
+        <p class="mt-2 text-sm sm:text-base text-slate-300">
+          Upload one or more images, then resize, convert, or do both in
+          a single high-quality batch pipeline.
+        </p>
+      </header>
+
+      <!-- Upload Section -->
+      <section aria-label="Upload images">
+        <div
+          id="dropZone"
+          class="group relative flex flex-col items-center justify-center w-full border-2 border-dashed rounded-xl px-4 py-8 cursor-pointer transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 border-slate-600/80 hover:border-emerald-400/80 hover:bg-slate-700/40"
+          role="button"
+          tabindex="0"
+          aria-describedby="dropzone-help"
+        >
+          <div class="pointer-events-none flex flex-col items-center text-center">
+            <div
+              class="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-700/80 text-emerald-300 group-hover:bg-emerald-500/15"
+              aria-hidden="true"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-7 w-7"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M3 15.25C3 13.4551 4.45507 12 6.25 12H7.5M17.75 17.25H18.5C20.1569 17.25 21.5 15.9069 21.5 14.25C21.5 12.5931 20.1569 11.25 18.5 11.25C18.4182 11.25 18.3372 11.2534 18.2571 11.26C17.8246 9.13657 15.9675 7.5 13.75 7.5C12.7138 7.5 11.7515 7.84223 10.9752 8.42846C10.3596 6.97119 8.93786 6 7.33333 6C5.24219 6 3.5 7.74219 3.5 9.83333C3.5 10.0467 3.51537 10.2567 3.54524 10.4625C2.63931 10.8715 2 11.7772 2 12.8333C2 14.295 3.0885 15.5 4.5 15.5H6.25"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12 9.75V16.5M12 9.75L9.75 12M12 9.75L14.25 12"
+                />
+              </svg>
+            </div>
+            <p class="text-sm sm:text-base font-medium text-white">
+              Drag &amp; drop images here
+            </p>
+            <p class="mt-1 text-xs sm:text-sm text-slate-300">
+              or
+              <span class="font-semibold text-emerald-300">browse</span>
+              from your device
+            </p>
+            <p
+              id="dropzone-help"
+              class="mt-2 text-[11px] sm:text-xs text-slate-400"
+            >
+              Supported formats: JPG, PNG, WEBP, GIF &mdash; multiple images
+              allowed
+            </p>
+          </div>
+          <input
+            id="fileInput"
+            type="file"
+            accept="image/*"
+            multiple
+            class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            aria-label="Choose image file"
+          />
+        </div>
+      </section>
+
+      <!-- Preview & Controls -->
+      <section
+        aria-label="Image previews and batch processing options"
+        class="mt-6 sm:mt-7 space-y-5 sm:space-y-6"
+      >
+        <!-- Preview -->
+        <div>
+          <h2 class="text-sm font-medium text-slate-200 mb-2">
+            Preview
+          </h2>
+          <div
+            id="previewContainer"
+            class="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-3"
+          >
+            <p
+              id="previewPlaceholder"
+              class="text-xs sm:text-sm text-slate-500 text-center py-3"
+            >
+              No images selected yet.
+            </p>
+            <div
+              id="previewGrid"
+              class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"
+            ></div>
+          </div>
+        </div>
+
+        <!-- Mode Tabs -->
+        <div class="mt-2">
+          <div
+            id="modeTabs"
+            class="inline-flex rounded-full bg-white/5 p-1 text-xs sm:text-sm"
+            role="tablist"
+            aria-label="Processing mode"
+          >
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full font-medium text-slate-200 bg-slate-900/70 shadow-sm shadow-black/40"
+              data-mode="convert"
+              role="tab"
+              aria-selected="true"
+            >
+              Convert
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full font-medium text-slate-200/70 hover:text-slate-100"
+              data-mode="resize"
+              role="tab"
+              aria-selected="false"
+            >
+              Resize
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full font-medium text-slate-200/70 hover:text-slate-100"
+              data-mode="both"
+              role="tab"
+              aria-selected="false"
+            >
+              Resize + Convert
+            </button>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
+          <!-- Resize Controls -->
+          <div
+            id="resizeControls"
+            data-panel="resize"
+            class="space-y-3"
+          >
+            <h3 class="text-xs font-medium uppercase tracking-wide text-slate-300">
+              Dimensions
+            </h3>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  for="resizeWidth"
+                  class="block text-[11px] font-medium text-slate-300"
+                >
+                  Width (px)
+                </label>
+                <input
+                  id="resizeWidth"
+                  type="number"
+                  min="1"
+                  class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-100 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  placeholder="Auto"
+                />
+              </div>
+              <div>
+                <label
+                  for="resizeHeight"
+                  class="block text-[11px] font-medium text-slate-300"
+                >
+                  Height (px)
+                </label>
+                <input
+                  id="resizeHeight"
+                  type="number"
+                  min="1"
+                  class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-100 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  placeholder="Auto"
+                />
+              </div>
+            </div>
+            <div class="flex items-center justify-between pt-1">
+              <label
+                for="lockAspect"
+                class="flex items-center gap-2 text-[11px] font-medium text-slate-300"
+              >
+                <span
+                  class="inline-flex h-4 w-4 items-center justify-center rounded bg-slate-900/80 border border-slate-600/80"
+                >
+                  <span
+                    id="lockAspectIcon"
+                    class="block h-2.5 w-2.5 rounded bg-emerald-400 scale-100 transition-transform"
+                  ></span>
+                </span>
+                Lock aspect ratio
+              </label>
+              <button
+                id="lockAspect"
+                type="button"
+                class="relative inline-flex h-5 w-9 items-center rounded-full bg-slate-700 transition data-[state=on]:bg-emerald-500"
+                data-state="on"
+                aria-pressed="true"
+              >
+                <span
+                  class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition translate-x-4 data-[state=on]:translate-x-4 data-[state=off]:translate-x-1"
+                ></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Convert Controls -->
+          <div
+            id="convertControls"
+            data-panel="convert"
+            class="space-y-3 lg:col-span-2"
+          >
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label
+                  for="formatSelect"
+                  class="block text-xs font-medium uppercase tracking-wide text-slate-300"
+                >
+                  Output format
+                </label>
+                <select
+                  id="formatSelect"
+                  class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                >
+                  <option value="jpg">JPG</option>
+                  <option value="png">PNG</option>
+                  <option value="webp">WEBP</option>
+                  <option value="avif">AVIF</option>
+                </select>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between">
+                  <label
+                    for="qualityRange"
+                    class="block text-xs font-medium uppercase tracking-wide text-slate-300"
+                  >
+                    Quality (JPG / WEBP / AVIF)
+                  </label>
+                  <span
+                    id="qualityValue"
+                    class="text-xs font-medium text-emerald-300"
+                  >
+                    0.8
+                  </span>
+                </div>
+                <input
+                  id="qualityRange"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.8"
+                  class="mt-1 w-full accent-emerald-400"
+                />
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+              <div class="flex gap-2">
+                <button
+                  id="convertBtn"
+                  type="button"
+                  class="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-emerald-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:bg-emerald-500/50 disabled:text-emerald-950/60"
+                >
+                  <span>Run Pipeline (Prepare ZIP)</span>
+                </button>
+                <button
+                  id="downloadZipBtn"
+                  type="button"
+                  class="inline-flex items-center justify-center rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-400"
+                  disabled
+                >
+                  <span>Download All as ZIP</span>
+                </button>
+              </div>
+              <p class="text-[11px] sm:text-xs text-slate-400">
+                The pipeline will process images sequentially for better
+                stability on low-end devices. When finished, download a single
+                ZIP containing all optimized images.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Status & Spinner -->
+      <section
+        class="mt-5 sm:mt-6 space-y-3"
+        aria-live="polite"
+      >
+        <div
+          id="spinner"
+          class="hidden flex items-center gap-2 text-sm text-slate-200"
+        >
+          <span
+            class="inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-emerald-400/40"
+            aria-hidden="true"
+          >
+            <span class="block h-3 w-3 rounded-full border-2 border-transparent border-t-emerald-400 animate-spin"></span>
+          </span>
+          <span>Converting images...</span>
+        </div>
+
+        <p
+          id="statusText"
+          class="text-xs text-slate-300"
+        ></p>
+
+        <div
+          id="successAlert"
+          class="hidden rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100"
+          role="status"
+        >
+          Images converted successfully. You can now download the ZIP file
+          containing all converted images.
+        </div>
+
+        <div
+          id="errorAlert"
+          class="hidden rounded-lg border border-rose-500/60 bg-rose-500/10 px-3 py-2 text-xs text-rose-100"
+          role="alert"
+        ></div>
+      </section>
+
+      <!-- Hidden canvas used for conversion -->
+      <canvas
+        id="hiddenCanvas"
+        class="hidden"
+        aria-hidden="true"
+      ></canvas>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
