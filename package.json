@@ -1,0 +1,20 @@
+{
+  "name": "glass-image-processor",
+  "version": "1.0.0",
+  "description": "A responsive, client-side batch image resizer/converter built with vanilla JS and Tailwind.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  },
+  "license": "MIT"
+}

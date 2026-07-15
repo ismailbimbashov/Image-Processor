@@ -1,12 +1,129 @@
-## Image Converter App
+# 🖼️ Glass Image Processor — Client-Side Batch Image Pipeline
 
-This is a simple, responsive image converter built with **HTML5**, **Tailwind CSS** (via CDN), and **vanilla JavaScript**.
+[![CI](https://github.com/ismailbimbashov/Image-Processor/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
-- **Upload**: Drag-and-drop or click to select a single image file (JPG, PNG, WEBP, GIF, or any image MIME type supported by your browser).
-- **Preview**: The selected image is displayed before conversion.
-- **Convert**: The app uses a hidden `<canvas>` element to draw the image and converts it to the selected format (JPG, PNG, WEBP, or GIF) via `canvas.toBlob()` / `canvas.toDataURL()`.
-- **Download**: The converted file is automatically downloaded as `converted-image.&lt;ext&gt;`.
-- **Feedback**: A spinner is shown during conversion and a success message appears when the download starts. Error messages are displayed if something goes wrong.
+A responsive, **fully client-side** batch image processor built with pure **Vanilla JavaScript (ES6 modules)** and **Tailwind CSS** — no framework, no build step. Images never leave the browser: every resize and format conversion happens locally on an in-memory `<canvas>`.
 
-> Note: Browser support for some output formats (especially WEBP and GIF from canvas) can vary. When a format is not fully supported, the app falls back to the closest format the browser provides and notifies you.
+`Vanilla JS` · `No build step` · `Layered modules` · `Unit + Playwright E2E`
 
+## ✨ Overview
+
+This project processes one or many images entirely in the browser and hands you back a single ZIP. It leans on the web platform directly — `File`, `canvas.toBlob()`, `URL.createObjectURL` — while keeping the image logic separated from the DOM so it can be unit-tested in Node.
+
+| | |
+|---|---|
+| **Language** | Vanilla JavaScript (ES6 modules) |
+| **Build step** | None — it's a static site |
+| **Styling** | Tailwind CSS (CDN) + a small custom stylesheet |
+| **Processing** | `<canvas>` → `toBlob()`, resize via offscreen canvas |
+| **Packaging** | Client-side ZIP via [JSZip](https://stuk.github.io/jszip/) (CDN) |
+| **Testing** | Node built-in runner (unit, in CI) + Playwright (E2E, real browser) |
+
+> **Honest dependency note:** this is *not* a zero-dependency app — it loads **Tailwind** and **JSZip** from a CDN at runtime, so it needs a network connection on first load. Everything else (the image pipeline) is hand-written and runs offline once loaded.
+
+## 🚀 Features
+
+- **Upload** — drag-and-drop or browse; accepts multiple image files (JPG, PNG, WEBP, GIF, or any browser-supported image type).
+- **Preview grid** — each selected image is shown with its original → new size, and can be removed individually (with a confirm step).
+- **Three processing modes**:
+  - **Convert** — change output format only.
+  - **Resize** — change dimensions (with optional aspect-ratio lock), keeping the original format.
+  - **Resize + Convert** — both in a single pass.
+- **Output formats** — JPG, PNG, WEBP, AVIF, with a quality slider for the lossy formats.
+- **Sequential batch pipeline** — images are processed one at a time to keep memory usage low on modest devices; a failed image is skipped, not fatal to the batch.
+- **One-click download** — all successful results are bundled into `converted-images.zip`.
+- **Feedback** — spinner, live status text, toasts, and `role`-annotated success/error alerts.
+
+## 🏛️ Architecture
+
+The code is organised so that the **image pipeline never touches the DOM**, and the **DOM layer never touches the canvas math**. That boundary is what makes the core unit-testable without a browser.
+
+```
+index.html              # markup + Tailwind classes
+style/style.css         # custom entrance / toast animations
+src/
+├── main.js             # composition root: app state + wiring
+├── ui/
+│   ├── dom.js          #   event binding (upload, drag/drop, delegation)
+│   ├── renderer.js     #   DOM rendering, object-URL previews, form reads
+│   └── tabs.js         #   mode tabs (convert / resize / both)
+├── engine/             # pure-ish image pipeline — no app state
+│   ├── processor.js    #   sequential batch orchestration
+│   ├── resizer.js      #   computeResizeDimensions() + canvas resize
+│   └── converter.js    #   mimeFromFormat() + canvas → Blob
+└── utils/
+    ├── zipper.js       #   JSZip wrapper + filename sanitisation
+    ├── toast.js        #   non-blocking notifications
+    └── errorHandler.js #   centralised user-facing messages
+```
+
+| Layer | Responsibility | Boundary |
+|---|---|---|
+| **engine** | Resize math, format→MIME mapping, canvas→Blob, batch loop | Pure helpers (`computeResizeDimensions`, `mimeFromFormat`) are DOM-free and directly unit-tested. |
+| **utils** | ZIP assembly, filename sanitisation, toasts, errors | `sanitizeBaseName` / `getTargetExtension` are pure and tested. |
+| **ui** | All DOM reads/writes, previews, event delegation | The only place allowed to touch the DOM. |
+| **main.js** | Holds the single source of truth for selected files/stats and wires the layers together | Owns state; delegates work downward. |
+
+## ⚡ Getting Started
+
+The app uses native ES6 modules, which browsers refuse to load over `file://`. Serve it over HTTP:
+
+```bash
+python3 -m http.server 8000
+# or: npx serve .
+```
+
+Then open <http://localhost:8000/>. No install or build step is required to run the app itself.
+
+## 🧪 Testing
+
+Two layers, mirroring the architecture:
+
+### Unit tests — engine & utils (in CI)
+
+Fast, **dependency-free** tests on Node's built-in runner. They cover format→MIME mapping, the resize dimension math (aspect-lock, clamping), and filename sanitisation — no browser required.
+
+```bash
+npm test
+```
+
+### End-to-end tests — Playwright (real browser)
+
+Playwright drives the actual canvas pipeline in Chromium: upload → preview, run pipeline → ZIP-ready, download → `converted-images.zip`, resize+convert, and delete-to-empty. The config auto-starts the static server for you.
+
+```bash
+npm install                       # installs @playwright/test
+npx playwright install chromium   # one-time browser download
+npm run test:e2e                  # headless (starts the server for you)
+npm run test:e2e:headed           # watch it run in a real browser
+npm run test:e2e:ui               # interactive UI mode
+```
+
+Override the port/URL if you serve elsewhere:
+
+```bash
+PORT=5500 npm run test:e2e
+# or point at an already-running server:
+APP_URL=http://localhost:5500/ npx playwright test
+```
+
+| E2E test | Verifies |
+|---|---|
+| Upload → preview | Selecting a file renders a preview tile and hides the placeholder. |
+| Convert pipeline | Running the pipeline enables the ZIP download and shows success. |
+| Download | Clicking download yields a `converted-images.zip` file. |
+| Resize + Convert | The combined mode processes the batch successfully. |
+| Delete | Removing the only image restores the empty state. |
+
+## 🔄 Continuous Integration
+
+Every push and pull request to `main` runs via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+
+- **Unit job** — the dependency-free suite on Node 18, 20, and 22.
+- **E2E job** — installs Chromium and runs the full Playwright suite against a freshly served copy of the app; the HTML report is uploaded as a build artifact.
+
+So both the pure logic *and* the real-browser pipeline are verified on every push.
+
+## 📄 License
+
+MIT — see `package.json`. (No `LICENSE` file is committed yet; add one before publishing.)

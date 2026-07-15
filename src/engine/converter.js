@@ -1,4 +1,4 @@
-const mimeFromFormat = (format, originalType) => {
+export const mimeFromFormat = (format, originalType) => {
   const normalized = String(format || "").toLowerCase();
 
   switch (normalized) {

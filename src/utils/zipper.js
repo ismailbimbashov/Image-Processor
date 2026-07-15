@@ -8,7 +8,7 @@ const ensureJsZip = () => {
 export const getTargetExtension = (format) =>
   format === "jpg" ? "jpg" : String(format || "png").toLowerCase();
 
-const sanitizeBaseName = (name) => {
+export const sanitizeBaseName = (name) => {
   if (!name) return "image";
   // Strip any path components first.
   const justName = name.split(/[\\/]/).pop() || name;
