@@ -1,23 +1,23 @@
-export function applyResize(canvas, ctx, options = {}) {
-  if (!canvas || !ctx) {
-    throw new Error("Canvas context is not available for resizing.");
-  }
-
-  const sourceWidth = canvas.width;
-  const sourceHeight = canvas.height;
-
+/**
+ * Pure helper: compute the target dimensions for a resize operation.
+ *
+ * Returns `null` when there is nothing to resize (no source pixels, or no
+ * target dimensions requested), so callers can early-out. Otherwise returns
+ * `{ width, height }` clamped to a minimum of 1px each.
+ */
+export function computeResizeDimensions(sourceWidth, sourceHeight, options = {}) {
   if (!sourceWidth || !sourceHeight) {
-    return;
+    return null;
   }
 
   const { targetWidth, targetHeight, lockAspect } = options;
 
-  let width = Number.isFinite(targetWidth) ? targetWidth : null;
-  let height = Number.isFinite(targetHeight) ? targetHeight : null;
+  let width = Number.isFinite(targetWidth) && targetWidth > 0 ? targetWidth : null;
+  let height = Number.isFinite(targetHeight) && targetHeight > 0 ? targetHeight : null;
 
   if (!width && !height) {
     // Nothing to resize; keep original dimensions.
-    return;
+    return null;
   }
 
   const aspect = sourceWidth / sourceHeight;
@@ -43,8 +43,26 @@ export function applyResize(canvas, ctx, options = {}) {
     if (!height) height = sourceHeight;
   }
 
-  width = Math.max(1, Math.round(width || sourceWidth));
-  height = Math.max(1, Math.round(height || sourceHeight));
+  return {
+    width: Math.max(1, Math.round(width || sourceWidth)),
+    height: Math.max(1, Math.round(height || sourceHeight)),
+  };
+}
+
+export function applyResize(canvas, ctx, options = {}) {
+  if (!canvas || !ctx) {
+    throw new Error("Canvas context is not available for resizing.");
+  }
+
+  const sourceWidth = canvas.width;
+  const sourceHeight = canvas.height;
+
+  const dimensions = computeResizeDimensions(sourceWidth, sourceHeight, options);
+  if (!dimensions) {
+    return;
+  }
+
+  const { width, height } = dimensions;
 
   // Draw from an offscreen canvas to preserve source pixels.
   const offscreen = document.createElement("canvas");

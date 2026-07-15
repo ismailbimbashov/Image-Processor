@@ -26,7 +26,23 @@ const tabs = initTabs({
 let selectedFiles = [];
 let currentZip = null;
 currentMode = tabs?.getMode() ?? currentMode;
-let fileStats = {};
+// Keyed by the File object itself so that two files sharing a name never
+// collide (a plain name-keyed object silently overwrote duplicates).
+let fileStats = new Map();
+
+const buildInitialStats = (files) =>
+  new Map(
+    files.map((file) => [file, { originalBytes: file.size, newBytes: null }]),
+  );
+
+const acceptSelection = (files) => {
+  selectedFiles = files;
+  currentZip = null;
+  renderer.setZipReady(false);
+  errorHandler.clear();
+  fileStats = buildInitialStats(selectedFiles);
+  renderer.renderPreview(selectedFiles, fileStats);
+};
 
 const handleFilesSelected = (files, originalFileList) => {
   const hasAnyFiles = (originalFileList && originalFileList.length > 0) || false;
@@ -39,17 +55,7 @@ const handleFilesSelected = (files, originalFileList) => {
     return;
   }
 
-  selectedFiles = files;
-  currentZip = null;
-  renderer.setZipReady(false);
-  errorHandler.clear();
-  fileStats = Object.fromEntries(
-    selectedFiles.map((file) => [
-      file.name,
-      { originalBytes: file.size, newBytes: null },
-    ]),
-  );
-  renderer.renderPreview(selectedFiles, fileStats);
+  acceptSelection(files);
 };
 
 const handleFilesDropped = (files) => {
@@ -58,17 +64,7 @@ const handleFilesDropped = (files) => {
     return;
   }
 
-  selectedFiles = files;
-  currentZip = null;
-  renderer.setZipReady(false);
-  errorHandler.clear();
-  fileStats = Object.fromEntries(
-    selectedFiles.map((file) => [
-      file.name,
-      { originalBytes: file.size, newBytes: null },
-    ]),
-  );
-  renderer.renderPreview(selectedFiles, fileStats);
+  acceptSelection(files);
 };
 
 const handleDeleteImage = (index) => {
@@ -98,16 +94,14 @@ const handleDeleteImage = (index) => {
   ];
 
   if (fileStats) {
-    // Rebuild stats to keep them in sync by name.
-    const nextStats = {};
+    // Rebuild stats so entries for the removed file are dropped, while
+    // preserving already-computed sizes for the remaining files.
+    const nextStats = new Map();
     selectedFiles.forEach((f) => {
-      const existing = fileStats[f.name];
-      nextStats[f.name] =
-        existing ??
-        ({
-          originalBytes: f.size,
-          newBytes: null,
-        });
+      nextStats.set(
+        f,
+        fileStats.get(f) ?? { originalBytes: f.size, newBytes: null },
+      );
     });
     fileStats = nextStats;
   }
@@ -206,10 +200,10 @@ const handleConvertAll = async () => {
       const newName = buildTargetFileName(file.name, finalExt);
       addBlobToZip(zip, newName, blob);
 
-      fileStats[file.name] = {
+      fileStats.set(file, {
         originalBytes,
         newBytes,
-      };
+      });
     });
 
     currentZip = zip;

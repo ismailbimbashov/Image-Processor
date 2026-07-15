@@ -79,13 +79,29 @@ export function createRenderer() {
     }
   };
 
+  // Track object URLs so they can be revoked and never leak memory.
+  let activePreviewUrls = [];
+
+  const revokePreviewUrls = () => {
+    activePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+    activePreviewUrls = [];
+  };
+
   const clearPreviewGrid = () => {
+    revokePreviewUrls();
     if (previewGrid) {
       previewGrid.innerHTML = "";
     }
   };
 
-  const renderPreview = (files, sizeInfo = {}) => {
+  const statsFor = (sizeInfo, file) => {
+    if (sizeInfo && typeof sizeInfo.get === "function") {
+      return sizeInfo.get(file) ?? {};
+    }
+    return {};
+  };
+
+  const renderPreview = (files, sizeInfo = new Map()) => {
     clearPreviewGrid();
 
     if (!files || files.length === 0) {
@@ -100,62 +116,61 @@ export function createRenderer() {
     }
 
     files.forEach((file, index) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const wrapper = document.createElement("div");
-        wrapper.className =
-          "relative aspect-square rounded-2xl overflow-hidden border border-white/10 bg-slate-900/60";
+      const wrapper = document.createElement("div");
+      wrapper.className =
+        "relative aspect-square rounded-2xl overflow-hidden border border-white/10 bg-slate-900/60";
 
-        const deleteBtn = document.createElement("button");
-        deleteBtn.type = "button";
-        deleteBtn.setAttribute("data-role", "delete-image");
-        deleteBtn.setAttribute("data-index", String(index));
-        deleteBtn.className =
-          "absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-slate-100 text-xs shadow-md shadow-black/40 hover:bg-rose-500 hover:text-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
-        deleteBtn.setAttribute(
-          "aria-label",
-          `Remove ${file.name || `image ${index + 1}`}`,
-        );
-        deleteBtn.textContent = "X";
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.setAttribute("data-role", "delete-image");
+      deleteBtn.setAttribute("data-index", String(index));
+      deleteBtn.className =
+        "absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-slate-100 text-xs shadow-md shadow-black/40 hover:bg-rose-500 hover:text-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
+      deleteBtn.setAttribute(
+        "aria-label",
+        `Remove ${file.name || `image ${index + 1}`}`,
+      );
+      deleteBtn.textContent = "X";
 
-        const img = document.createElement("img");
-        img.src = event.target?.result;
-        img.alt = file.name || `Selected image ${index + 1}`;
-        img.className = "h-full w-full object-cover";
+      const objectUrl = URL.createObjectURL(file);
+      activePreviewUrls.push(objectUrl);
 
-        const stats = sizeInfo?.[file.name] ?? {};
-        const originalBytes =
-          typeof stats.originalBytes === "number"
-            ? stats.originalBytes
-            : file.size;
-        const newBytes = stats.newBytes;
+      const img = document.createElement("img");
+      img.src = objectUrl;
+      img.alt = file.name || `Selected image ${index + 1}`;
+      img.className = "h-full w-full object-cover";
 
-        const infoBar = document.createElement("div");
-        infoBar.className =
-          "absolute inset-x-0 bottom-0 bg-slate-950/70 backdrop-blur-sm px-2 py-1.5 flex items-center justify-between gap-2 text-[10px] text-slate-100";
+      const stats = statsFor(sizeInfo, file);
+      const originalBytes =
+        typeof stats.originalBytes === "number"
+          ? stats.originalBytes
+          : file.size;
+      const newBytes = stats.newBytes;
 
-        const nameEl = document.createElement("span");
-        nameEl.className = "truncate max-w-[55%]";
-        nameEl.textContent = file.name || `Image ${index + 1}`;
+      const infoBar = document.createElement("div");
+      infoBar.className =
+        "absolute inset-x-0 bottom-0 bg-slate-950/70 backdrop-blur-sm px-2 py-1.5 flex items-center justify-between gap-2 text-[10px] text-slate-100";
 
-        const sizeEl = document.createElement("span");
-        sizeEl.className = "ml-auto text-right text-[9px] text-slate-300";
-        const originalText = formatBytes(originalBytes);
-        const newText =
-          typeof newBytes === "number" && newBytes > 0
-            ? formatBytes(newBytes)
-            : "pending";
-        sizeEl.textContent = `${originalText} → ${newText}`;
+      const nameEl = document.createElement("span");
+      nameEl.className = "truncate max-w-[55%]";
+      nameEl.textContent = file.name || `Image ${index + 1}`;
 
-        infoBar.appendChild(nameEl);
-        infoBar.appendChild(sizeEl);
+      const sizeEl = document.createElement("span");
+      sizeEl.className = "ml-auto text-right text-[9px] text-slate-300";
+      const originalText = formatBytes(originalBytes);
+      const newText =
+        typeof newBytes === "number" && newBytes > 0
+          ? formatBytes(newBytes)
+          : "pending";
+      sizeEl.textContent = `${originalText} → ${newText}`;
 
-        wrapper.appendChild(deleteBtn);
-        wrapper.appendChild(img);
-        wrapper.appendChild(infoBar);
-        previewGrid?.appendChild(wrapper);
-      };
-      reader.readAsDataURL(file);
+      infoBar.appendChild(nameEl);
+      infoBar.appendChild(sizeEl);
+
+      wrapper.appendChild(deleteBtn);
+      wrapper.appendChild(img);
+      wrapper.appendChild(infoBar);
+      previewGrid?.appendChild(wrapper);
     });
   };
 
