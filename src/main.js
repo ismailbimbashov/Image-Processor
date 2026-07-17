@@ -8,12 +8,18 @@ import {
   generateZipBlob,
   buildTargetFileName,
   getTargetExtension,
+  resolveTargetExtension,
 } from "./utils/zipper.js";
 import { ErrorHandler } from "./utils/errorHandler.js";
 import { showToast } from "./utils/toast.js";
 
 const renderer = createRenderer();
 const errorHandler = new ErrorHandler(renderer);
+
+// The engine is DOM-free; the composition root owns the canvas surfaces and
+// hands them down.
+const hiddenCanvas = document.getElementById("hiddenCanvas");
+const createCanvas = () => document.createElement("canvas");
 
 let currentMode = "convert";
 
@@ -133,6 +139,31 @@ const handleQualityInput = (value) => {
   renderer.updateQualityLabel(value);
 };
 
+// Files the engine skipped are named for the user instead of being left in the
+// console, so a partial batch explains itself.
+const reportFileFailures = (failures) => {
+  if (!failures.length) return;
+
+  failures.forEach(({ file, error }) => {
+    // eslint-disable-next-line no-console
+    console.error(`[pipeline] ${file?.name ?? "image"}:`, error);
+  });
+
+  const names = failures
+    .map(({ file }) => file?.name ?? "image")
+    .join(", ");
+  const reason =
+    failures.length === 1 && typeof failures[0].error?.message === "string"
+      ? ` — ${failures[0].error.message}`
+      : "";
+
+  showToast({
+    message: `Skipped ${failures.length} image${failures.length === 1 ? "" : "s"}: ${names}${reason}`,
+    type: "error",
+    duration: 5000,
+  });
+};
+
 const handleConvertAll = async () => {
   errorHandler.clear();
 
@@ -158,6 +189,8 @@ const handleConvertAll = async () => {
     `Running ${currentMode} pipeline for ${selectedFiles.length} images${targetSuffix}...`,
   );
 
+  const failures = [];
+
   try {
     const { results, total, successCount } = await processFilesSequential(
       selectedFiles,
@@ -166,13 +199,20 @@ const handleConvertAll = async () => {
         format,
         quality,
         resizeOptions,
+        canvas: hiddenCanvas,
+        createCanvas,
         onProgress: (index, totalCount) => {
           renderer.setStatus(
             `Processing ${index} of ${totalCount} images...`,
           );
         },
+        onFileError: (file, error) => {
+          failures.push({ file, error });
+        },
       },
     );
+
+    reportFileFailures(failures);
 
     if (successCount === 0) {
       renderer.setLoading(false, false);
@@ -192,11 +232,11 @@ const handleConvertAll = async () => {
     }
 
     results.forEach(({ file, blob, originalBytes, newBytes }) => {
-      const originalExt =
-        file.name.split(".").pop() || "png";
-      const finalExt = isFormatChangingMode
-        ? targetExt
-        : originalExt.toLowerCase();
+      const finalExt = resolveTargetExtension(
+        file.name,
+        format,
+        isFormatChangingMode,
+      );
       const newName = buildTargetFileName(file.name, finalExt);
       addBlobToZip(zip, newName, blob);
 

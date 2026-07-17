@@ -49,9 +49,17 @@ export function computeResizeDimensions(sourceWidth, sourceHeight, options = {})
   };
 }
 
-export function applyResize(canvas, ctx, options = {}) {
+/**
+ * Resizes `canvas` in place. The offscreen surface is obtained from the
+ * injected `createCanvas` factory so this module never reaches for `document`.
+ */
+export function applyResize(canvas, ctx, options = {}, createCanvas) {
   if (!canvas || !ctx) {
     throw new Error("Canvas context is not available for resizing.");
+  }
+
+  if (typeof createCanvas !== "function") {
+    throw new Error("A createCanvas factory must be provided for resizing.");
   }
 
   const sourceWidth = canvas.width;
@@ -65,7 +73,7 @@ export function applyResize(canvas, ctx, options = {}) {
   const { width, height } = dimensions;
 
   // Draw from an offscreen canvas to preserve source pixels.
-  const offscreen = document.createElement("canvas");
+  const offscreen = createCanvas();
   offscreen.width = sourceWidth;
   offscreen.height = sourceHeight;
   const offCtx = offscreen.getContext("2d");
@@ -83,5 +91,10 @@ export function applyResize(canvas, ctx, options = {}) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(offscreen, 0, 0, width, height);
+
+  // The scratch surface can hold a full-resolution backing store; drop it now
+  // rather than waiting for the collector to notice.
+  offscreen.width = 0;
+  offscreen.height = 0;
 }
 

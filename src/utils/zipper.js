@@ -17,9 +17,31 @@ export const sanitizeBaseName = (name) => {
   return withoutExt.replace(/[^a-zA-Z0-9._-]+/g, "_") || "image";
 };
 
+// An extension never legitimately contains a separator or a dot, so unsafe
+// characters are dropped rather than substituted: a placeholder would let
+// "./.." survive as "_.._" and still describe a directory hop.
+export const sanitizeExtension = (ext) => {
+  const justExt = String(ext ?? "").split(/[\\/]/).pop() || "";
+  return justExt.replace(/[^a-zA-Z0-9]+/g, "").toLowerCase() || "png";
+};
+
+// Derives the extension the output blob should carry. It lives here, beside
+// the sanitiser, so no caller can assemble a name that bypasses it.
+export const resolveTargetExtension = (originalName, format, changeFormat) => {
+  if (changeFormat) {
+    return sanitizeExtension(getTargetExtension(format));
+  }
+
+  const name = String(originalName ?? "");
+  // Without a dot there is no extension to preserve; sanitizeExtension then
+  // supplies the "png" fallback instead of treating the whole name as one.
+  const originalExt = name.includes(".") ? name.split(".").pop() : "";
+  return sanitizeExtension(originalExt);
+};
+
 export const buildTargetFileName = (originalName, targetExt) => {
   const baseName = sanitizeBaseName(originalName);
-  return `${baseName}.${targetExt}`;
+  return `${baseName}.${sanitizeExtension(targetExt)}`;
 };
 
 export const createZip = () => {
@@ -31,6 +53,10 @@ export const addBlobToZip = (zip, fileName, blob) => {
   if (!zip) {
     throw new Error("ZIP instance is not available.");
   }
+  // Last line of defence: a separator here means a sanitiser was bypassed.
+  if (/[\\/]/.test(fileName)) {
+    throw new Error(`Refusing to add an unsafe ZIP entry name: ${fileName}`);
+  }
   zip.file(fileName, blob);
 };
 
@@ -40,4 +66,3 @@ export const generateZipBlob = async (zip) => {
   }
   return zip.generateAsync({ type: "blob" });
 };
-

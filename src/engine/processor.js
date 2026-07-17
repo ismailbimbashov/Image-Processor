@@ -1,35 +1,100 @@
 import { applyResize } from "./resizer.js";
 import { convertCanvasToBlob } from "./converter.js";
 
-const hiddenCanvas = document.getElementById("hiddenCanvas");
-const ctx = hiddenCanvas?.getContext("2d") ?? null;
+// Safari refuses backing stores beyond ~16.7M pixels (and 4096px per edge on
+// older devices) and hands back a blank canvas instead of throwing, so the
+// source is scaled to fit before a single pixel is allocated.
+const MAX_CANVAS_PIXELS = 16777216;
+const MAX_CANVAS_EDGE = 4096;
 
-const readFileAsDataURL = (file) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (event) => resolve(event.target?.result);
-    reader.onerror = () =>
-      reject(new Error("Failed to read the selected image file."));
-    reader.readAsDataURL(file);
-  });
+const decodeFile = async (file) => {
+  // An object URL keeps the bytes out of the JS heap entirely; a data URL
+  // would have materialised the whole file as a base64 string first.
+  const url = URL.createObjectURL(file);
 
-const drawImageToCanvas = (img) => {
-  if (!hiddenCanvas || !ctx) {
+  try {
+    const img = new Image();
+
+    await new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () =>
+        reject(new Error("Unable to load image for processing."));
+      img.src = url;
+    });
+
+    if (typeof img.decode === "function") {
+      // Guarantees the pixels are ready before the URL is revoked below.
+      await img.decode().catch(() => {});
+    }
+
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
+
+const fitWithinCanvasLimits = (width, height) => {
+  const scale = Math.min(
+    1,
+    MAX_CANVAS_EDGE / Math.max(width, height),
+    Math.sqrt(MAX_CANVAS_PIXELS / (width * height)),
+  );
+
+  if (scale >= 1) {
+    return { width, height };
+  }
+
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+  };
+};
+
+const drawImageToCanvas = (canvas, ctx, img) => {
+  if (!canvas || !ctx) {
     throw new Error("Canvas context is not available for processing.");
   }
 
-  hiddenCanvas.width = img.width;
-  hiddenCanvas.height = img.height;
-  ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
-  ctx.drawImage(img, 0, 0);
+  const sourceWidth = img.naturalWidth || img.width;
+  const sourceHeight = img.naturalHeight || img.height;
+
+  // A dimensionless SVG (or a corrupt file) would otherwise yield a 0x0
+  // canvas and fail silently further down the pipeline.
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error(
+      "Image has no intrinsic dimensions. Vector files without a fixed width and height cannot be processed.",
+    );
+  }
+
+  const { width, height } = fitWithinCanvasLimits(sourceWidth, sourceHeight);
+
+  canvas.width = width;
+  canvas.height = height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(img, 0, 0, width, height);
 };
 
-const buildPipeline = (mode, resizeOptions, conversionOptions) => {
+const releaseCanvas = (canvas) => {
+  if (!canvas) return;
+  // Zeroing the dimensions frees the backing store immediately instead of
+  // holding it until the next batch reassigns it.
+  canvas.width = 0;
+  canvas.height = 0;
+};
+
+const buildPipeline = (
+  canvas,
+  ctx,
+  createCanvas,
+  mode,
+  resizeOptions,
+  conversionOptions,
+) => {
   const steps = [];
 
   if (mode === "resize" || mode === "both") {
     steps.push(async () => {
-      applyResize(hiddenCanvas, ctx, resizeOptions);
+      applyResize(canvas, ctx, resizeOptions, createCanvas);
     });
   }
 
@@ -47,7 +112,7 @@ const buildPipeline = (mode, resizeOptions, conversionOptions) => {
       const format =
         mode === "resize" ? "original" : conversionOptions.format || "png";
 
-      const blob = await convertCanvasToBlob(hiddenCanvas, {
+      const blob = await convertCanvasToBlob(canvas, {
         ...conversionOptions,
         format,
         originalType,
@@ -68,6 +133,9 @@ export async function processFilesSequential(
     quality = 0.8,
     resizeOptions = {},
     onProgress,
+    onFileError,
+    canvas,
+    createCanvas,
   } = {},
 ) {
   const total = files?.length ?? 0;
@@ -77,69 +145,69 @@ export async function processFilesSequential(
     return { results, total: 0, successCount: 0 };
   }
 
-  if (!hiddenCanvas || !ctx) {
+  if (!canvas) {
+    throw new Error("Canvas is not available for image processing.");
+  }
+
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
     throw new Error("Canvas is not available for image processing.");
   }
 
   let successCount = 0;
   let index = 0;
 
-  // Sequential batch execution using for-of to avoid memory spikes on low-end devices.
-  // eslint-disable-next-line no-restricted-syntax
-  for (const file of files) {
-    index += 1;
+  try {
+    // Sequential batch execution using for-of to avoid memory spikes on low-end devices.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const file of files) {
+      index += 1;
 
-    try {
-      onProgress?.(index, total, file);
+      try {
+        onProgress?.(index, total, file);
 
-      const dataUrl = await readFileAsDataURL(file);
-
-      const img = new Image();
-
-      // Load image from data URL
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () =>
-          reject(new Error("Unable to load image for processing."));
-        img.src = dataUrl;
-      });
-
-      drawImageToCanvas(img);
-
-      const state = { file, outputBlob: null };
-
-      const pipeline = buildPipeline(mode, resizeOptions, {
-        format,
-        quality,
-      });
-
-      // Execute pipeline steps sequentially for this image.
-      // eslint-disable-next-line no-await-in-loop
-      for (const step of pipeline) {
-        // Allow steps to use and mutate `state`.
         // eslint-disable-next-line no-await-in-loop
-        await step(state);
-      }
+        const img = await decodeFile(file);
 
-      if (!state.outputBlob) {
-        throw new Error("Processing pipeline did not produce an output blob.");
-      }
+        drawImageToCanvas(canvas, ctx, img);
 
-      const outputBlob = state.outputBlob;
-      results.push({
-        file,
-        blob: outputBlob,
-        originalBytes: file.size,
-        newBytes: outputBlob.size,
-      });
-      successCount += 1;
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error(error);
+        const state = { file, outputBlob: null };
+
+        const pipeline = buildPipeline(canvas, ctx, createCanvas, mode, resizeOptions, {
+          format,
+          quality,
+        });
+
+        // Execute pipeline steps sequentially for this image.
+        // eslint-disable-next-line no-await-in-loop
+        for (const step of pipeline) {
+          // Allow steps to use and mutate `state`.
+          // eslint-disable-next-line no-await-in-loop
+          await step(state);
+        }
+
+        if (!state.outputBlob) {
+          throw new Error("Processing pipeline did not produce an output blob.");
+        }
+
+        const outputBlob = state.outputBlob;
+        results.push({
+          file,
+          blob: outputBlob,
+          originalBytes: file.size,
+          newBytes: outputBlob.size,
+        });
+        successCount += 1;
+      } catch (error) {
+        // A single bad file never fails the batch, but the caller owns how the
+        // failure is surfaced; the engine does not report to the console.
+        onFileError?.(file, error);
+      }
     }
+  } finally {
+    releaseCanvas(canvas);
   }
 
   return { results, total, successCount };
 }
-
