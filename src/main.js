@@ -2,6 +2,7 @@ import { registerUiEvents } from "./ui/dom.js";
 import { createRenderer } from "./ui/renderer.js";
 import { initTabs } from "./ui/tabs.js";
 import { processFilesSequential } from "./engine/processor.js";
+import { detectEncodableFormats } from "./engine/capabilities.js";
 import {
   createZip,
   addBlobToZip,
@@ -145,7 +146,6 @@ const reportFileFailures = (failures) => {
   if (!failures.length) return;
 
   failures.forEach(({ file, error }) => {
-    // eslint-disable-next-line no-console
     console.error(`[pipeline] ${file?.name ?? "image"}:`, error);
   });
 
@@ -315,4 +315,18 @@ registerUiEvents({
   onQualityInput: handleQualityInput,
   onDeleteImage: handleDeleteImage,
 });
+
+// Offering a format the browser cannot encode only ever yields an error, so the
+// menu is trimmed to what this browser actually supports. The probe is driven
+// from the markup rather than a hard-coded list, and re-runs on every load, so
+// a format returns by itself once a browser ships its encoder.
+detectEncodableFormats(createCanvas, renderer.getFormatOptions())
+  .then((supported) => {
+    renderer.setAvailableFormats(supported);
+  })
+  .catch((error) => {
+    // Detection is an enhancement; the conversion-time guard is the real
+    // safety net, so a failed probe leaves every option in place.
+    console.warn("[capabilities] format detection failed:", error);
+  });
 

@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 8000;
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}/`;
 
 export default defineConfig({
-  testDir: "./uiTests",
+  testDir: "./tests/e2e",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,

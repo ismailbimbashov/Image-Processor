@@ -223,6 +223,32 @@ export function createRenderer() {
 
   const getSelectedFormat = () => formatSelect?.value ?? "png";
 
+  const getFormatOptions = () =>
+    formatSelect ? Array.from(formatSelect.options, (opt) => opt.value) : [];
+
+  /**
+   * Drops the formats this browser cannot encode. An empty list is ignored:
+   * a failed probe must never leave the user with no formats at all.
+   */
+  const setAvailableFormats = (formats) => {
+    if (!formatSelect || !Array.isArray(formats) || formats.length === 0) {
+      return;
+    }
+
+    const allowed = new Set(formats);
+    const previous = formatSelect.value;
+
+    Array.from(formatSelect.options).forEach((option) => {
+      if (!allowed.has(option.value)) {
+        option.remove();
+      }
+    });
+
+    if (!allowed.has(previous) && formatSelect.options.length > 0) {
+      formatSelect.selectedIndex = 0;
+    }
+  };
+
   const getQualityValue = () => {
     const raw = qualityRange?.value ?? "0.8";
     const parsed = Number.parseFloat(raw);
@@ -257,6 +283,8 @@ export function createRenderer() {
     showError,
     setZipReady,
     getSelectedFormat,
+    getFormatOptions,
+    setAvailableFormats,
     getQualityValue,
     getResizeOptions,
   };

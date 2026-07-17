@@ -22,7 +22,6 @@ export class ErrorHandler {
   }
 
   jsZipUnavailable(error) {
-    // eslint-disable-next-line no-console
     console.error(error);
     this.renderer?.showError(
       "The ZIP library could not be loaded. Please check your network connection and try again.",
@@ -34,7 +33,6 @@ export class ErrorHandler {
   }
 
   genericConversionError(error) {
-    // eslint-disable-next-line no-console
     console.error(error);
     const message =
       error && typeof error.message === "string"
@@ -44,7 +42,6 @@ export class ErrorHandler {
   }
 
   zipGenerationError(error) {
-    // eslint-disable-next-line no-console
     console.error(error);
     this.renderer?.showError("Failed to generate ZIP file.");
   }

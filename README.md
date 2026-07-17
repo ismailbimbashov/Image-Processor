@@ -21,6 +21,8 @@ This project processes one or many images entirely in the browser and hands you 
 
 > **Honest dependency note:** this is *not* a zero-dependency app — it loads **Tailwind** and **JSZip** from a CDN at runtime, so it needs a network connection on first load. Everything else (the image pipeline) is hand-written and runs offline once loaded.
 
+> **Browser encoding note:** `canvas.toBlob()` support varies by format, and browsers do **not** report a missing encoder — they quietly hand back PNG bytes instead. Measured in **Chromium and Firefox**: JPG, PNG and WEBP encode correctly, while **AVIF and GIF silently fall back to PNG** (Safari/WebKit untested). The app therefore probes the browser at startup and removes formats it cannot genuinely encode, so AVIF simply doesn't appear today — and will return by itself once a browser ships the encoder.
+
 ## 🚀 Features
 
 - **Upload** — drag-and-drop or browse; accepts multiple image files (JPG, PNG, WEBP, GIF, or any browser-supported image type).
@@ -29,8 +31,9 @@ This project processes one or many images entirely in the browser and hands you 
   - **Convert** — change output format only.
   - **Resize** — change dimensions (with optional aspect-ratio lock), keeping the original format.
   - **Resize + Convert** — both in a single pass.
-- **Output formats** — JPG, PNG, WEBP, AVIF, with a quality slider for the lossy formats.
-- **Sequential batch pipeline** — images are processed one at a time to keep memory usage low on modest devices; a failed image is skipped, not fatal to the batch.
+- **Output formats** — JPG, PNG and WEBP, with a quality slider for the lossy ones. The menu is **built from what your browser can actually encode**, so a format that would be silently faked is never offered.
+- **Verified encoding — two layers of defence.** The startup probe hides unencodable formats, and the converter independently compares the returned `Blob.type` against what was requested. PNG bytes can never ship under an `.avif` name.
+- **Sequential batch pipeline** — images are processed one at a time to keep memory usage low on modest devices; a failed image is skipped (and named in a toast), not fatal to the batch.
 - **One-click download** — all successful results are bundled into `converted-images.zip`.
 - **Feedback** — spinner, live status text, toasts, and `role`-annotated success/error alerts.
 
@@ -47,10 +50,11 @@ src/
 │   ├── dom.js          #   event binding (upload, drag/drop, delegation)
 │   ├── renderer.js     #   DOM rendering, object-URL previews, form reads
 │   └── tabs.js         #   mode tabs (convert / resize / both)
-├── engine/             # pure-ish image pipeline — no app state
+├── engine/             # genuinely pure image pipeline — no DOM, no app state
 │   ├── processor.js    #   sequential batch orchestration
 │   ├── resizer.js      #   computeResizeDimensions() + canvas resize
-│   └── converter.js    #   mimeFromFormat() + canvas → Blob
+│   ├── capabilities.js #   startup probe: what can this browser really encode?
+│   └── converter.js    #   mimeFromFormat() + canvas → Blob + substitution guard
 └── utils/
     ├── zipper.js       #   JSZip wrapper + filename sanitisation
     ├── toast.js        #   non-blocking notifications
@@ -59,8 +63,8 @@ src/
 
 | Layer | Responsibility | Boundary |
 |---|---|---|
-| **engine** | Resize math, format→MIME mapping, canvas→Blob, batch loop | Pure helpers (`computeResizeDimensions`, `mimeFromFormat`) are DOM-free and directly unit-tested. |
-| **utils** | ZIP assembly, filename sanitisation, toasts, errors | `sanitizeBaseName` / `getTargetExtension` are pure and tested. |
+| **engine** | Resize math, format→MIME mapping, canvas→Blob, batch loop | **Genuinely pure — it never references `document`.** The canvas and a `createCanvas` factory are injected by `main.js`, so the whole layer (including `applyResize`) is unit-tested in Node against mock surfaces. |
+| **utils** | ZIP assembly, filename sanitisation, toasts, errors | `sanitizeBaseName` / `sanitizeExtension` / `resolveTargetExtension` are pure and tested; ZIP entry names are sanitised against path traversal. |
 | **ui** | All DOM reads/writes, previews, event delegation | The only place allowed to touch the DOM. |
 | **main.js** | Holds the single source of truth for selected files/stats and wires the layers together | Owns state; delegates work downward. |
 
@@ -79,17 +83,25 @@ Then open <http://localhost:8000/>. No install or build step is required to run 
 
 Two layers, mirroring the architecture:
 
-### Unit tests — engine & utils (in CI)
+### Unit tests — `tests/unit/` (in CI)
 
-Fast, **dependency-free** tests on Node's built-in runner. They cover format→MIME mapping, the resize dimension math (aspect-lock, clamping), and filename sanitisation — no browser required.
+Fast, **dependency-free** tests on Node's built-in runner. Because the engine is genuinely DOM-free, they cover the real pipeline logic — not just leaf helpers — with no browser:
+
+- `computeResizeDimensions` — aspect-lock, single-axis, clamping to ≥1px.
+- `applyResize` — driven through an **injected mock `createCanvas` factory**, asserting the resize, the smoothing settings, and that the scratch surface is released.
+- `fitWithinCanvasLimits` — Safari/iOS backing-store clamping (4096px edge, 16.7M pixels).
+- `mimeFromFormat` — format→MIME mapping and fallbacks.
+- `detectEncodableFormats` — the startup probe, including the silent PNG-substitution case and the "can't probe" fallback.
+- `convertCanvasToBlob` — the substitution guard, driven by a mock encoder (covers AVIF *and* GIF-in-resize-mode).
+- `sanitizeBaseName` / `sanitizeExtension` / `resolveTargetExtension` — filename and path-traversal hardening.
 
 ```bash
 npm test
 ```
 
-### End-to-end tests — Playwright (real browser)
+### End-to-end tests — `tests/e2e/` (Playwright, real browser)
 
-Playwright drives the actual canvas pipeline in Chromium: upload → preview, run pipeline → ZIP-ready, download → `converted-images.zip`, resize+convert, and delete-to-empty. The config auto-starts the static server for you.
+Playwright drives the actual canvas pipeline in Chromium. Crucially, it **unzips the downloaded ZIP and asserts the output's magic bytes** — an extension alone is not accepted as proof of format. The config auto-starts the static server for you.
 
 ```bash
 npm install                       # installs @playwright/test
@@ -111,8 +123,12 @@ APP_URL=http://localhost:5500/ npx playwright test
 |---|---|
 | Upload → preview | Selecting a file renders a preview tile and hides the placeholder. |
 | Convert pipeline | Running the pipeline enables the ZIP download and shows success. |
-| Download | Clicking download yields a `converted-images.zip` file. |
-| Resize + Convert | The combined mode processes the batch successfully. |
+| **PNG signature** | The `.png` entry in the ZIP really starts with `\x89PNG`. |
+| **JPG signature** | The `.jpg` entry really starts with `FF D8 FF`. |
+| **WEBP signature** | The `.webp` entry really carries a `RIFF….WEBP` header. |
+| **Capability detection** | Formats the browser can't encode are dropped from the menu (AVIF disappears in Chromium); the rest survive. |
+| **Safe default** | The selected format is always one the browser can actually encode. |
+| Resize + Convert | The combined mode produces a file with a valid signature. |
 | Delete | Removing the only image restores the empty state. |
 
 ## 🔄 Continuous Integration
@@ -126,4 +142,4 @@ So both the pure logic *and* the real-browser pipeline are verified on every pus
 
 ## 📄 License
 
-MIT — see `package.json`. (No `LICENSE` file is committed yet; add one before publishing.)
+MIT License This project is free to use and open source under the MIT License – feel free to fork, modify, and distribute it as you wish.

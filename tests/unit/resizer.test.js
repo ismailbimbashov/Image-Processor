@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeResizeDimensions } from "../src/engine/resizer.js";
+import { computeResizeDimensions } from "../../src/engine/resizer.js";
 
 test("returns null when there are no source pixels", () => {
   assert.equal(computeResizeDimensions(0, 100, { targetWidth: 50 }), null);

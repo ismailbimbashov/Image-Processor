@@ -20,6 +20,8 @@ export const mimeFromFormat = (format, originalType) => {
   }
 };
 
+const normalizeMime = (value) => String(value ?? "").trim().toLowerCase();
+
 /**
  * Pure canvas conversion helper. Does not read files or mutate the canvas.
  * It only serializes the current canvas contents into a Blob.
@@ -47,6 +49,20 @@ export function convertCanvasToBlob(
         );
         return;
       }
+
+      // A browser asked for a format it cannot encode (AVIF and GIF in
+      // Chromium) does not fail: it silently returns PNG bytes in a truthy
+      // Blob. Unchecked, those bytes get written under the requested
+      // extension, so the file's signature contradicts its name.
+      if (normalizeMime(blob.type) !== normalizeMime(mimeType)) {
+        reject(
+          new Error(
+            `Browser encoding failed. Requested ${mimeType} but received ${blob.type}.`,
+          ),
+        );
+        return;
+      }
+
       resolve(blob);
     };
 

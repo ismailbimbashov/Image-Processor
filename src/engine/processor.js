@@ -33,7 +33,12 @@ const decodeFile = async (file) => {
   }
 };
 
-const fitWithinCanvasLimits = (width, height) => {
+/**
+ * Pure helper: scale `width`/`height` down so the resulting canvas stays within
+ * the platform's backing-store limits, preserving aspect ratio. Returns the
+ * input untouched when it already fits.
+ */
+export const fitWithinCanvasLimits = (width, height) => {
   const scale = Math.min(
     1,
     MAX_CANVAS_EDGE / Math.max(width, height),
@@ -160,14 +165,12 @@ export async function processFilesSequential(
 
   try {
     // Sequential batch execution using for-of to avoid memory spikes on low-end devices.
-    // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       index += 1;
 
       try {
         onProgress?.(index, total, file);
 
-        // eslint-disable-next-line no-await-in-loop
         const img = await decodeFile(file);
 
         drawImageToCanvas(canvas, ctx, img);
@@ -180,10 +183,8 @@ export async function processFilesSequential(
         });
 
         // Execute pipeline steps sequentially for this image.
-        // eslint-disable-next-line no-await-in-loop
         for (const step of pipeline) {
           // Allow steps to use and mutate `state`.
-          // eslint-disable-next-line no-await-in-loop
           await step(state);
         }
 

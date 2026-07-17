@@ -5,7 +5,7 @@ import {
   getTargetExtension,
   sanitizeBaseName,
   buildTargetFileName,
-} from "../src/utils/zipper.js";
+} from "../../src/utils/zipper.js";
 
 test("getTargetExtension maps jpg and lowercases others", () => {
   assert.equal(getTargetExtension("jpg"), "jpg");
