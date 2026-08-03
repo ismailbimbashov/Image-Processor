@@ -1,4 +1,6 @@
 import { defineConfig } from "vite";
+import tailwindcss from "tailwindcss";
+import autoprefixer from "autoprefixer";
 
 // Strict production CSP. The built HTML references only first-party, hashed
 // assets (no inline script/style, no CDN), so this needs neither
@@ -36,6 +38,20 @@ const injectCsp = () => ({
 export default defineConfig({
   base: "./",
   plugins: [injectCsp()],
+  // Tailwind + Autoprefixer are configured inline here so the repo root stays
+  // free of separate postcss.config.js / tailwind.config.js files.
+  css: {
+    postcss: {
+      plugins: [
+        tailwindcss({
+          content: ["./index.html", "./src/**/*.js"],
+          theme: { extend: {} },
+          plugins: [],
+        }),
+        autoprefixer(),
+      ],
+    },
+  },
   build: {
     target: "es2020",
     outDir: "dist",
