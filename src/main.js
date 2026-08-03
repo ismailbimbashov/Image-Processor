@@ -10,6 +10,7 @@ import {
   buildTargetFileName,
   getTargetExtension,
   resolveTargetExtension,
+  uniqueEntryName,
 } from "./utils/zipper.js";
 import { ErrorHandler } from "./utils/errorHandler.js";
 import { showToast } from "./utils/toast.js";
@@ -30,8 +31,14 @@ const tabs = initTabs({
   },
 });
 
+// Hard ceiling on a single batch: enough for real use, low enough that we
+// never spin up an unbounded number of object URLs or a runaway pipeline.
+const MAX_FILES = 500;
+
 let selectedFiles = [];
 let currentZip = null;
+let isProcessing = false;
+let deletePendingTimer = null;
 currentMode = tabs?.getMode() ?? currentMode;
 // Keyed by the File object itself so that two files sharing a name never
 // collide (a plain name-keyed object silently overwrote duplicates).
@@ -43,10 +50,23 @@ const buildInitialStats = (files) =>
   );
 
 const acceptSelection = (files) => {
-  selectedFiles = files;
+  let accepted = files;
+
+  if (files.length > MAX_FILES) {
+    accepted = files.slice(0, MAX_FILES);
+    showToast({
+      message: `Too many images selected. Only the first ${MAX_FILES} were added.`,
+      type: "error",
+      duration: 5000,
+    });
+  }
+
+  selectedFiles = accepted;
   currentZip = null;
   renderer.setZipReady(false);
   errorHandler.clear();
+  clearTimeout(deletePendingTimer);
+  renderer.clearDeletePending();
   fileStats = buildInitialStats(selectedFiles);
   renderer.renderPreview(selectedFiles, fileStats);
 };
@@ -75,6 +95,11 @@ const handleFilesDropped = (files) => {
 };
 
 const handleDeleteImage = (index) => {
+  // Structural edits are locked while a batch is running.
+  if (isProcessing) {
+    return;
+  }
+
   if (!selectedFiles || selectedFiles.length === 0) {
     return;
   }
@@ -83,16 +108,25 @@ const handleDeleteImage = (index) => {
     return;
   }
 
-  const file = selectedFiles[index];
-  const name = file?.name || `image ${index + 1}`;
-
-  // Safety confirmation
-  const confirmed = window.confirm(
-    `Are you sure you want to delete this image?\n\n${name}`,
-  );
-  if (!confirmed) {
+  // Non-blocking, inline confirmation: the first click arms the tile's button
+  // and the second click on the same tile removes it (no synchronous
+  // window.confirm freezing the event loop). Arming auto-clears after a moment.
+  if (!renderer.isDeletePending(index)) {
+    renderer.setDeletePending(index);
+    clearTimeout(deletePendingTimer);
+    deletePendingTimer = setTimeout(() => {
+      renderer.clearDeletePending();
+    }, 3500);
+    showToast({
+      message: "Click the ✓ again to remove this image.",
+      type: "info",
+      duration: 3000,
+    });
     return;
   }
+
+  clearTimeout(deletePendingTimer);
+  renderer.clearDeletePending();
 
   // Remove from internal state
   selectedFiles = [
@@ -120,6 +154,9 @@ const handleDeleteImage = (index) => {
   if (selectedFiles.length === 0) {
     renderer.renderPreview([], {});
     renderer.setStatus("");
+    // The grid is gone; return focus to the dropzone so keyboard users keep a
+    // sensible position instead of being dropped onto <body>.
+    document.getElementById("dropZone")?.focus();
     showToast({
       message: "All images removed. Drop new files to start again.",
       type: "info",
@@ -129,6 +166,9 @@ const handleDeleteImage = (index) => {
   }
 
   renderer.renderPreview(selectedFiles, fileStats);
+  // renderPreview rebuilds the grid, destroying the focused button. Move focus
+  // to the tile that shifted into the deleted slot (or the new last one).
+  renderer.focusDeleteButton(Math.min(index, selectedFiles.length - 1));
   showToast({
     message: "Image removed from the batch.",
     type: "info",
@@ -181,6 +221,12 @@ const handleConvertAll = async () => {
     : null;
   const resizeOptions = renderer.getResizeOptions();
 
+  // Lock structural edits (delete) for the duration of the batch and clear any
+  // half-armed delete so it can't fire against a shifting array mid-run.
+  isProcessing = true;
+  clearTimeout(deletePendingTimer);
+  renderer.setProcessing(true);
+
   renderer.setLoading(true, false);
   const targetSuffix = targetExt
     ? ` to .${targetExt}`
@@ -231,13 +277,20 @@ const handleConvertAll = async () => {
       return;
     }
 
+    const usedNames = new Set();
+
     results.forEach(({ file, blob, originalBytes, newBytes }) => {
       const finalExt = resolveTargetExtension(
         file.name,
         format,
         isFormatChangingMode,
       );
-      const newName = buildTargetFileName(file.name, finalExt);
+      // De-duplicate so two inputs sharing a basename never overwrite each
+      // other in the archive (e.g. photo.webp, photo-2.webp).
+      const newName = uniqueEntryName(
+        buildTargetFileName(file.name, finalExt),
+        usedNames,
+      );
       addBlobToZip(zip, newName, blob);
 
       fileStats.set(file, {
@@ -269,6 +322,10 @@ const handleConvertAll = async () => {
     currentZip = null;
     renderer.setZipReady(false);
     errorHandler.genericConversionError(error);
+  } finally {
+    // Whatever the outcome, always restore the ability to edit the batch.
+    isProcessing = false;
+    renderer.setProcessing(false);
   }
 };
 

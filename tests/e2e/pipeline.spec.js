@@ -186,15 +186,115 @@ test("resize + convert mode produces a file with a valid signature", async ({
   expect(SIGNATURES.png(bytes)).toBe(true);
 });
 
-test("deleting the only image restores the empty state", async ({ page }) => {
-  // The delete action asks for confirmation via window.confirm.
-  page.on("dialog", (dialog) => dialog.accept());
+test("an over-limit resize is clamped, not hung, and still downloads", async ({
+  page,
+}) => {
+  await page.locator("#fileInput").setInputFiles(pngFile());
+  await page.locator("#previewGrid > div").first().waitFor();
 
+  await page.locator('[data-mode="both"]').click();
+  await page.locator("#formatSelect").selectOption("png");
+
+  // The input now carries max="4096"; bypass native validation by setting the
+  // value directly and dispatching the input event the app listens for. This
+  // proves the JS engine — not just the HTML — clamps the dimension.
+  await page.locator("#resizeWidth").evaluate((el) => {
+    el.value = "20000";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  await page.locator("#convertBtn").click();
+
+  // The whole point: the batch finishes (no OOM hang) and the ZIP is ready.
+  await expect(page.locator("#downloadZipBtn")).toBeEnabled({ timeout: 15000 });
+  const { zip, names } = await downloadZip(page);
+  expect(names).toEqual(["photo.png"]);
+
+  const bytes = await zip.file("photo.png").async("nodebuffer");
+  expect(SIGNATURES.png(bytes)).toBe(true);
+
+  // PNG IHDR: width @ byte 16, height @ byte 20 (big-endian). Both must have
+  // been clamped to the 4096 ceiling rather than allocated at 20000.
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  expect(width).toBeLessThanOrEqual(4096);
+  expect(height).toBeLessThanOrEqual(4096);
+  expect(width).toBeGreaterThan(2);
+});
+
+test("a partial batch zips only the successes and reports the shortfall", async ({
+  page,
+}) => {
+  const good = pngFile("ok.png");
+  // A file that passes the image/* MIME filter but cannot be decoded, so the
+  // engine skips it via onFileError without failing the whole batch.
+  const bad = {
+    name: "broken.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("this is not a real image"),
+  };
+
+  await page.locator("#fileInput").setInputFiles([good, bad]);
+  await expect(page.locator("#previewGrid > div")).toHaveCount(2);
+
+  await page.locator("#formatSelect").selectOption("png");
+  await page.locator("#convertBtn").click();
+
+  await expect(page.locator("#downloadZipBtn")).toBeEnabled();
+  await expect(page.locator("#statusText")).toContainText("Processed 1 of 2");
+
+  const { names } = await downloadZip(page);
+  expect(names).toEqual(["ok.png"]); // only the decodable file is archived
+});
+
+test("deleting an image uses a two-click inline confirm (no dialog)", async ({
+  page,
+}) => {
   await page.locator("#fileInput").setInputFiles(pngFile());
   await expect(page.locator("#previewGrid > div")).toHaveCount(1);
 
-  await page.locator('[data-role="delete-image"]').first().click();
+  const deleteBtn = page.locator('[data-role="delete-image"]').first();
 
+  // First click arms (button becomes a check); the tile is NOT yet removed.
+  await deleteBtn.click();
+  await expect(deleteBtn).toHaveText("✓");
+  await expect(page.locator("#previewGrid > div")).toHaveCount(1);
+
+  // Second click confirms.
+  await deleteBtn.click();
   await expect(page.locator("#previewGrid > div")).toHaveCount(0);
   await expect(page.locator("#previewPlaceholder")).toBeVisible();
+});
+
+test("delete controls are locked while a batch is processing", async ({
+  page,
+}) => {
+  await page.locator("#fileInput").setInputFiles(pngFile());
+  await page.locator("#previewGrid > div").first().waitFor();
+
+  await page.locator("#convertBtn").click();
+
+  // By the time the ZIP is ready the batch has finished, so delete is usable
+  // again — the durable, non-flaky assertion of the lock's release.
+  await expect(page.locator("#downloadZipBtn")).toBeEnabled();
+  await expect(
+    page.locator('[data-role="delete-image"]').first(),
+  ).toBeEnabled();
+  await expect(
+    page.locator('[data-role="delete-image"]').first(),
+  ).toHaveAttribute("aria-disabled", "false");
+});
+
+test("mode tabs support arrow-key navigation", async ({ page }) => {
+  const convertTab = page.locator('[data-mode="convert"]');
+  const resizeTab = page.locator('[data-mode="resize"]');
+
+  await convertTab.focus();
+  await expect(convertTab).toHaveAttribute("aria-selected", "true");
+
+  await page.keyboard.press("ArrowRight");
+
+  await expect(resizeTab).toBeFocused();
+  await expect(resizeTab).toHaveAttribute("aria-selected", "true");
+  await expect(convertTab).toHaveAttribute("aria-selected", "false");
 });

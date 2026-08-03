@@ -37,6 +37,9 @@ export function initTabs({ onModeChange } = {}) {
       const btnMode = btn.getAttribute("data-mode");
       const isActive = btnMode === mode;
       btn.setAttribute("aria-selected", isActive ? "true" : "false");
+      // Roving tabindex: only the active tab is in the Tab order; the rest are
+      // reached with the arrow keys (WAI-ARIA tabs pattern).
+      btn.tabIndex = isActive ? 0 : -1;
       btn.classList.toggle(
         "bg-slate-900/70",
         isActive,
@@ -57,10 +60,46 @@ export function initTabs({ onModeChange } = {}) {
     onModeChange?.(mode);
   };
 
-  tabButtons.forEach((btn) => {
+  const focusTabAt = (position) => {
+    const count = tabButtons.length;
+    const wrapped = ((position % count) + count) % count;
+    const btn = tabButtons[wrapped];
+    const mode = btn.getAttribute("data-mode") || "convert";
+    setActiveTab(mode);
+    btn.focus();
+  };
+
+  tabButtons.forEach((btn, i) => {
     btn.addEventListener("click", () => {
       const mode = btn.getAttribute("data-mode") || "convert";
       setActiveTab(mode);
+    });
+
+    // Keyboard support for the tablist: arrows move (and activate) with
+    // wrap-around; Home/End jump to the ends.
+    btn.addEventListener("keydown", (event) => {
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          event.preventDefault();
+          focusTabAt(i + 1);
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          event.preventDefault();
+          focusTabAt(i - 1);
+          break;
+        case "Home":
+          event.preventDefault();
+          focusTabAt(0);
+          break;
+        case "End":
+          event.preventDefault();
+          focusTabAt(tabButtons.length - 1);
+          break;
+        default:
+          break;
+      }
     });
   });
 

@@ -1,9 +1,13 @@
+import { MAX_EDGE, MAX_PIXELS } from "./limits.js";
+
 /**
  * Pure helper: compute the target dimensions for a resize operation.
  *
  * Returns `null` when there is nothing to resize (no source pixels, or no
  * target dimensions requested), so callers can early-out. Otherwise returns
- * `{ width, height }` clamped to a minimum of 1px each.
+ * `{ width, height }` clamped to a minimum of 1px each and to the platform
+ * canvas ceilings (so a user-supplied 20000px target cannot allocate an
+ * over-limit canvas and silently OOM the tab).
  */
 export function computeResizeDimensions(sourceWidth, sourceHeight, options = {}) {
   if (!sourceWidth || !sourceHeight) {
@@ -43,10 +47,24 @@ export function computeResizeDimensions(sourceWidth, sourceHeight, options = {})
     if (!height) height = sourceHeight;
   }
 
-  return {
-    width: Math.max(1, Math.round(width || sourceWidth)),
-    height: Math.max(1, Math.round(height || sourceHeight)),
-  };
+  let outW = Math.max(1, Math.round(width || sourceWidth));
+  let outH = Math.max(1, Math.round(height || sourceHeight));
+
+  // Clamp the requested target to the platform canvas ceilings, preserving the
+  // aspect ratio. Without this, a user typing 20000px would allocate a canvas
+  // the browser cannot back, hanging or blanking the pipeline.
+  const scale = Math.min(
+    1,
+    MAX_EDGE / Math.max(outW, outH),
+    Math.sqrt(MAX_PIXELS / (outW * outH)),
+  );
+
+  if (scale < 1) {
+    outW = Math.max(1, Math.floor(outW * scale));
+    outH = Math.max(1, Math.floor(outH * scale));
+  }
+
+  return { width: outW, height: outH };
 }
 
 /**

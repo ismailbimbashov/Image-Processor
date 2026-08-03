@@ -44,6 +44,34 @@ export const buildTargetFileName = (originalName, targetExt) => {
   return `${baseName}.${sanitizeExtension(targetExt)}`;
 };
 
+/**
+ * Returns a ZIP entry name that does not collide with any already recorded in
+ * `usedNames`, appending an incrementing counter before the extension when it
+ * would. Distinct source files that sanitise to the same name (e.g. two
+ * `photo.png` files from different folders) would otherwise silently overwrite
+ * one another in the archive. Mutates `usedNames` with the returned name.
+ */
+export const uniqueEntryName = (name, usedNames = new Set()) => {
+  if (!usedNames.has(name)) {
+    usedNames.add(name);
+    return name;
+  }
+
+  const dot = name.lastIndexOf(".");
+  const base = dot === -1 ? name : name.slice(0, dot);
+  const ext = dot === -1 ? "" : name.slice(dot);
+
+  let counter = 2;
+  let candidate = `${base}-${counter}${ext}`;
+  while (usedNames.has(candidate)) {
+    counter += 1;
+    candidate = `${base}-${counter}${ext}`;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
+};
+
 export const createZip = () => {
   const JsZipCtor = ensureJsZip();
   return new JsZipCtor();

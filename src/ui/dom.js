@@ -94,6 +94,12 @@ export function registerUiEvents({
       const target = event.target.closest("[data-role='delete-image']");
       if (!target || !previewGrid.contains(target)) return;
 
+      // A disabled button (batch running) does not emit clicks in most
+      // browsers, but aria-disabled ones can — ignore both defensively.
+      if (target.disabled || target.getAttribute("aria-disabled") === "true") {
+        return;
+      }
+
       const indexRaw = target.getAttribute("data-index");
       const index = Number.parseInt(indexRaw ?? "", 10);
       if (!Number.isInteger(index) || index < 0) return;

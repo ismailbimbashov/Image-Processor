@@ -101,6 +101,42 @@ export function createRenderer() {
     return {};
   };
 
+  // While a batch runs, structural edits (delete) are locked; a delete button
+  // that has been clicked once is "armed" and awaits a confirming second click.
+  let processing = false;
+  let pendingDeleteIndex = null;
+
+  /** Applies the current processing / armed state to one delete button. */
+  const paintDeleteButton = (btn) => {
+    const index = Number.parseInt(btn.getAttribute("data-index") ?? "", 10);
+    const name = btn.dataset.name || `image ${index + 1}`;
+    const armed = pendingDeleteIndex === index;
+
+    btn.disabled = processing;
+    btn.setAttribute("aria-disabled", processing ? "true" : "false");
+    btn.classList.toggle("opacity-40", processing);
+    btn.classList.toggle("cursor-not-allowed", processing);
+
+    btn.classList.toggle("bg-rose-500", armed);
+    btn.classList.toggle("text-rose-50", armed);
+    btn.classList.toggle("bg-slate-950/90", !armed);
+
+    btn.textContent = armed ? "✓" : "X";
+    btn.setAttribute(
+      "aria-label",
+      armed ? `Confirm removing ${name}` : `Remove ${name}`,
+    );
+    btn.title = armed ? "Click again to remove" : "";
+  };
+
+  /** Re-paints every delete button currently in the grid. */
+  const refreshDeleteButtons = () => {
+    if (!previewGrid) return;
+    previewGrid
+      .querySelectorAll("[data-role='delete-image']")
+      .forEach((btn) => paintDeleteButton(btn));
+  };
+
   const renderPreview = (files, sizeInfo = new Map()) => {
     clearPreviewGrid();
 
@@ -115,6 +151,10 @@ export function createRenderer() {
       previewPlaceholder.classList.add("hidden");
     }
 
+    // Build the whole batch off-DOM, then attach once, so the grid reflows a
+    // single time instead of once per image.
+    const fragment = document.createDocumentFragment();
+
     files.forEach((file, index) => {
       const wrapper = document.createElement("div");
       wrapper.className =
@@ -124,13 +164,10 @@ export function createRenderer() {
       deleteBtn.type = "button";
       deleteBtn.setAttribute("data-role", "delete-image");
       deleteBtn.setAttribute("data-index", String(index));
+      deleteBtn.dataset.name = file.name || `image ${index + 1}`;
       deleteBtn.className =
-        "absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-slate-100 text-xs shadow-md shadow-black/40 hover:bg-rose-500 hover:text-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
-      deleteBtn.setAttribute(
-        "aria-label",
-        `Remove ${file.name || `image ${index + 1}`}`,
-      );
-      deleteBtn.textContent = "X";
+        "absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-100 text-xs shadow-md shadow-black/40 hover:bg-rose-500 hover:text-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
+      paintDeleteButton(deleteBtn);
 
       const objectUrl = URL.createObjectURL(file);
       activePreviewUrls.push(objectUrl);
@@ -170,8 +207,39 @@ export function createRenderer() {
       wrapper.appendChild(deleteBtn);
       wrapper.appendChild(img);
       wrapper.appendChild(infoBar);
-      previewGrid?.appendChild(wrapper);
+      fragment.appendChild(wrapper);
     });
+
+    previewGrid?.appendChild(fragment);
+  };
+
+  /** Locks/unlocks structural edits (delete) while a batch is running. */
+  const setProcessing = (value) => {
+    processing = !!value;
+    if (processing) {
+      pendingDeleteIndex = null;
+    }
+    refreshDeleteButtons();
+  };
+
+  /** Marks a delete button as awaiting a confirming second click. */
+  const setDeletePending = (index) => {
+    pendingDeleteIndex = Number.isInteger(index) ? index : null;
+    refreshDeleteButtons();
+  };
+
+  const clearDeletePending = () => {
+    pendingDeleteIndex = null;
+    refreshDeleteButtons();
+  };
+
+  const isDeletePending = (index) => pendingDeleteIndex === index;
+
+  /** Moves focus to a delete button by index, if it exists. */
+  const focusDeleteButton = (index) => {
+    previewGrid
+      ?.querySelector(`[data-role='delete-image'][data-index='${index}']`)
+      ?.focus();
   };
 
   const updateQualityLabel = (value) => {
@@ -282,6 +350,11 @@ export function createRenderer() {
     showSuccess,
     showError,
     setZipReady,
+    setProcessing,
+    setDeletePending,
+    clearDeletePending,
+    isDeletePending,
+    focusDeleteButton,
     getSelectedFormat,
     getFormatOptions,
     setAvailableFormats,

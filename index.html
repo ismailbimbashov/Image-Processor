@@ -6,12 +6,46 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0"
     />
+    <!--
+      Content-Security-Policy: constrains what may load/execute, so a
+      compromised CDN cannot inject arbitrary script or exfiltrate data.
+      - script-src does NOT allow 'unsafe-inline' (no inline <script> is used).
+      - style-src allows 'unsafe-inline' because the Tailwind CDN runtime
+        injects a <style> element at runtime; that is its documented behaviour.
+      - img-src allows blob:/data: for the object-URL previews and the
+        toDataURL() encoder fallback.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               script-src 'self' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com;
+               style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com;
+               img-src 'self' blob: data:;
+               font-src 'self';
+               connect-src 'self';
+               base-uri 'none';
+               form-action 'none';
+               object-src 'none'"
+    />
     <link rel="icon" type="image/x-icon" href="./style/image/image-.png" />
     <title>Image Processor</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- JSZip for batch ZIP downloads -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!--
+      JSZip for batch ZIP downloads.
+      SECURITY: the integrity hash below pins the exact bytes of JSZip 3.10.1.
+      If the CDN file changes (or you bump the version), the browser will
+      REFUSE to load it and ZIP downloads will break until you regenerate it:
+        curl -fsSL <this url> | openssl dgst -sha384 -binary | openssl base64 -A
+      (Placeholder form, if you prefer to fill it in yourself:
+       integrity="sha384-REPLACE_ME_WITH_REAL_HASH")
+    -->
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+      integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
     <!-- Custom styles -->
     <link
       rel="stylesheet"
@@ -187,6 +221,7 @@
                   id="resizeWidth"
                   type="number"
                   min="1"
+                  max="4096"
                   class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-100 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
                   placeholder="Auto"
                 />
@@ -202,6 +237,7 @@
                   id="resizeHeight"
                   type="number"
                   min="1"
+                  max="4096"
                   class="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-900/70 px-2 py-1.5 text-xs text-slate-100 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
                   placeholder="Auto"
                 />

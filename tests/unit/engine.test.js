@@ -2,15 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { fitWithinCanvasLimits } from "../../src/engine/processor.js";
-import { applyResize } from "../../src/engine/resizer.js";
+import { applyResize, computeResizeDimensions } from "../../src/engine/resizer.js";
+import { MAX_EDGE, MAX_PIXELS } from "../../src/engine/limits.js";
 import {
   sanitizeExtension,
   resolveTargetExtension,
 } from "../../src/utils/zipper.js";
-
-// These mirror the platform ceilings the processor guards against.
-const MAX_EDGE = 4096;
-const MAX_PIXELS = 16777216;
 
 /* ------------------------------------------------------------------ *
  * fitWithinCanvasLimits — iOS/Safari backing-store clamping
@@ -178,4 +175,54 @@ test("applyResize surfaces a failure to acquire the offscreen context", () => {
     () => applyResize(canvas, ctx, { targetWidth: 100 }, createCanvas),
     /offscreen canvas context/,
   );
+});
+
+/* ------------------------------------------------------------------ *
+ * computeResizeDimensions — canvas-ceiling clamping (TASK-02)
+ * ------------------------------------------------------------------ */
+
+test("computeResizeDimensions clamps a 20000x10000 request to 4096x2048", () => {
+  // A 2:1 target far beyond the ceiling must scale down while keeping 2:1.
+  const r = computeResizeDimensions(200, 100, {
+    targetWidth: 20000,
+    targetHeight: 10000,
+    lockAspect: false,
+  });
+
+  assert.deepEqual(r, { width: 4096, height: 2048 });
+});
+
+test("computeResizeDimensions clamps a huge aspect-locked width", () => {
+  // Source 2:1, user types width 20000, aspect locked -> 20000x10000 -> clamp.
+  const r = computeResizeDimensions(200, 100, {
+    targetWidth: 20000,
+    lockAspect: true,
+  });
+
+  assert.deepEqual(r, { width: 4096, height: 2048 });
+});
+
+test("computeResizeDimensions leaves an at-limit target untouched", () => {
+  const r = computeResizeDimensions(8192, 4096, {
+    targetWidth: MAX_EDGE,
+    targetHeight: 2048,
+    lockAspect: false,
+  });
+
+  assert.deepEqual(r, { width: MAX_EDGE, height: 2048 });
+  assert.ok(r.width * r.height <= MAX_PIXELS);
+});
+
+test("computeResizeDimensions clamps a square over the pixel ceiling", () => {
+  // 5000x5000 = 25M px > 16.7M ceiling, and within the edge limit, so the
+  // pixel-area term (not the edge term) drives the clamp.
+  const r = computeResizeDimensions(1000, 1000, {
+    targetWidth: 5000,
+    targetHeight: 5000,
+    lockAspect: false,
+  });
+
+  assert.ok(r.width <= MAX_EDGE && r.height <= MAX_EDGE);
+  assert.ok(r.width * r.height <= MAX_PIXELS, `too many px: ${r.width * r.height}`);
+  assert.equal(r.width, r.height, "must stay square");
 });

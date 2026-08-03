@@ -1,11 +1,6 @@
 import { applyResize } from "./resizer.js";
 import { convertCanvasToBlob } from "./converter.js";
-
-// Safari refuses backing stores beyond ~16.7M pixels (and 4096px per edge on
-// older devices) and hands back a blank canvas instead of throwing, so the
-// source is scaled to fit before a single pixel is allocated.
-const MAX_CANVAS_PIXELS = 16777216;
-const MAX_CANVAS_EDGE = 4096;
+import { MAX_EDGE, MAX_PIXELS } from "./limits.js";
 
 const decodeFile = async (file) => {
   // An object URL keeps the bytes out of the JS heap entirely; a data URL
@@ -41,8 +36,8 @@ const decodeFile = async (file) => {
 export const fitWithinCanvasLimits = (width, height) => {
   const scale = Math.min(
     1,
-    MAX_CANVAS_EDGE / Math.max(width, height),
-    Math.sqrt(MAX_CANVAS_PIXELS / (width * height)),
+    MAX_EDGE / Math.max(width, height),
+    Math.sqrt(MAX_PIXELS / (width * height)),
   );
 
   if (scale >= 1) {
@@ -205,6 +200,13 @@ export async function processFilesSequential(
         // failure is surfaced; the engine does not report to the console.
         onFileError?.(file, error);
       }
+
+      // Yield a macro-task between images so the browser can paint the
+      // progress update and stay responsive during a large batch. Canvas work
+      // is synchronous and would otherwise monopolise the main thread.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
   } finally {
     releaseCanvas(canvas);
