@@ -22,10 +22,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
+  // E2E runs against the real production build (Vite build → preview), so the
+  // strict CSP, bundled Tailwind/JSZip, and hashed assets are all exercised.
   webServer: {
-    command: `python3 -m http.server ${PORT}`,
+    command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
     url: APP_URL,
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: 120_000,
   },
 });

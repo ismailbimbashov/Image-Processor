@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/ismailbimbashov/Image-Processor/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
-A responsive, **fully client-side** batch image processor built with pure **Vanilla JavaScript (ES6 modules)** and **Tailwind CSS** — no framework, no build step. Images never leave the browser: every resize and format conversion happens locally on an in-memory `<canvas>`.
+A responsive, **fully client-side** batch image processor built with pure **Vanilla JavaScript (ES6 modules)** and **Tailwind CSS**, bundled by a thin **Vite** build. No framework. Images never leave the browser: every resize and format conversion happens locally on an in-memory `<canvas>`.
 
-`Vanilla JS` · `No build step` · `Layered modules` · `Unit + Playwright E2E`
+`Vanilla JS` · `Vite bundle` · `No CDN` · `Strict CSP` · `Unit + Playwright E2E`
 
 ## ✨ Overview
 
@@ -13,13 +13,13 @@ This project processes one or many images entirely in the browser and hands you 
 | | |
 |---|---|
 | **Language** | Vanilla JavaScript (ES6 modules) |
-| **Build step** | None — it's a static site |
-| **Styling** | Tailwind CSS (CDN) + a small custom stylesheet |
+| **Build** | Vite — bundles/minifies; hashed first-party assets |
+| **Styling** | Tailwind CSS (v3, compiled at build time) + a small custom stylesheet |
 | **Processing** | `<canvas>` → `toBlob()`, resize via offscreen canvas |
-| **Packaging** | Client-side ZIP via [JSZip](https://stuk.github.io/jszip/) (CDN) |
-| **Testing** | Node built-in runner (unit, in CI) + Playwright (E2E, real browser) |
+| **Packaging** | Client-side ZIP via [JSZip](https://stuk.github.io/jszip/) (bundled) |
+| **Testing** | Node built-in runner (unit, in CI) + Playwright (E2E against the production build) |
 
-> **Honest dependency note:** this is *not* a zero-dependency app — it loads **Tailwind** and **JSZip** from a CDN at runtime, so it needs a network connection on first load. Everything else (the image pipeline) is hand-written and runs offline once loaded.
+> **Dependency note:** Tailwind and JSZip are **bundled locally by Vite** — the deployed app makes **no runtime CDN calls**, so nothing third-party is fetched at load. This also lets the production build ship a **strict Content-Security-Policy** with no `'unsafe-inline'` or `'unsafe-eval'`.
 
 > **Browser encoding note:** `canvas.toBlob()` support varies by format, and browsers do **not** report a missing encoder — they quietly hand back PNG bytes instead. Measured in **Chromium and Firefox**: JPG, PNG and WEBP encode correctly, while **AVIF and GIF silently fall back to PNG** (Safari/WebKit untested). The app therefore probes the browser at startup and removes formats it cannot genuinely encode, so AVIF simply doesn't appear today — and will return by itself once a browser ships the encoder.
 
@@ -70,14 +70,19 @@ src/
 
 ## ⚡ Getting Started
 
-The app uses native ES6 modules, which browsers refuse to load over `file://`. Serve it over HTTP:
-
 ```bash
-python3 -m http.server 8000
-# or: npx serve .
+npm install        # install dependencies
+npm run dev        # Vite dev server with hot reload
 ```
 
-Then open <http://localhost:8000/>. No install or build step is required to run the app itself.
+For a production bundle (minified, hashed assets, strict CSP injected):
+
+```bash
+npm run build      # outputs to dist/
+npm run preview    # serve the built dist/ locally
+```
+
+`dist/` is fully static — deploy it to any static host (GitHub Pages, Netlify, Cloudflare Pages). The `base: "./"` in `vite.config.js` makes it work from a sub-path too.
 
 ## 🧪 Testing
 
@@ -85,7 +90,7 @@ Two layers, mirroring the architecture:
 
 ### Unit tests — `tests/unit/` (in CI)
 
-Fast, **dependency-free** tests on Node's built-in runner. Because the engine is genuinely DOM-free, they cover the real pipeline logic — not just leaf helpers — with no browser:
+Fast tests on Node's built-in runner (`npm ci` first — the engine imports the bundled `jszip`). Because the engine is genuinely DOM-free, they cover the real pipeline logic — not just leaf helpers — with no browser:
 
 - `computeResizeDimensions` — aspect-lock, single-axis, clamping to ≥1px.
 - `applyResize` — driven through an **injected mock `createCanvas` factory**, asserting the resize, the smoothing settings, and that the scratch surface is released.
@@ -101,10 +106,10 @@ npm test
 
 ### End-to-end tests — `tests/e2e/` (Playwright, real browser)
 
-Playwright drives the actual canvas pipeline in Chromium. Crucially, it **unzips the downloaded ZIP and asserts the output's magic bytes** — an extension alone is not accepted as proof of format. The config auto-starts the static server for you.
+Playwright drives the actual canvas pipeline in Chromium **against the real production build** (`vite build` → `vite preview`), so the strict CSP and bundled assets are exercised too. Crucially, it **unzips the downloaded ZIP and asserts the output's magic bytes** — an extension alone is not accepted as proof of format.
 
 ```bash
-npm install                       # installs @playwright/test
+npm install                       # installs deps incl. @playwright/test
 npx playwright install chromium   # one-time browser download
 npm run test:e2e                  # headless (starts the server for you)
 npm run test:e2e:headed           # watch it run in a real browser

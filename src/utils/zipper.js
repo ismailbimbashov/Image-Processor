@@ -1,9 +1,4 @@
-const ensureJsZip = () => {
-  if (typeof JSZip === "undefined") {
-    throw new Error("JSZip library failed to load.");
-  }
-  return JSZip;
-};
+import JSZip from "jszip";
 
 export const getTargetExtension = (format) =>
   format === "jpg" ? "jpg" : String(format || "png").toLowerCase();
@@ -73,8 +68,7 @@ export const uniqueEntryName = (name, usedNames = new Set()) => {
 };
 
 export const createZip = () => {
-  const JsZipCtor = ensureJsZip();
-  return new JsZipCtor();
+  return new JSZip();
 };
 
 export const addBlobToZip = (zip, fileName, blob) => {

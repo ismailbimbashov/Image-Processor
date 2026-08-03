@@ -5,6 +5,9 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "node --test",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
@@ -13,9 +16,15 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
-    "jszip": "^3.10.1"
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.25",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.2.0"
   },
   "license": "MIT"
 }

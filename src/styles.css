@@ -1,3 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ *
+ * Custom animations (migrated from style/style.css — now bundled by
+ * Vite so nothing is loaded from a CDN at runtime).
+ * ------------------------------------------------------------------ */
+
 /* Subtle entrance animation for the main card */
 main[aria-labelledby="app-title"] {
   animation: fade-up-soft 280ms ease-out;
@@ -64,5 +73,3 @@ main[aria-labelledby="app-title"] {
 .animate-fade-out-down {
   animation: fade-out-down 160ms ease-in forwards;
 }
-
-

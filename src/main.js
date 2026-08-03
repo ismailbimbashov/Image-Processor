@@ -1,3 +1,4 @@
+import "./styles.css";
 import { registerUiEvents } from "./ui/dom.js";
 import { createRenderer } from "./ui/renderer.js";
 import { initTabs } from "./ui/tabs.js";
