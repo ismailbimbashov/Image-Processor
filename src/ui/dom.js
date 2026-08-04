@@ -47,8 +47,14 @@ export function registerUiEvents({
     );
   });
 
+  // Accept raster images only. SVG is excluded on purpose: rasterising a vector
+  // to canvas has inconsistent sizing and can taint the canvas, which would
+  // then make toBlob() throw partway through a batch.
   const collectImageFiles = (fileList) =>
-    Array.from(fileList || []).filter((file) => file.type.startsWith("image/"));
+    Array.from(fileList || []).filter(
+      (file) =>
+        file.type.startsWith("image/") && file.type !== "image/svg+xml",
+    );
 
   dropZone.addEventListener("drop", (event) => {
     const dt = event.dataTransfer;

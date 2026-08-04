@@ -4,7 +4,7 @@
 
 A responsive, **fully client-side** batch image processor built with pure **Vanilla JavaScript (ES6 modules)** and **Tailwind CSS**, bundled by a thin **Vite** build. No framework. Images never leave the browser: every resize and format conversion happens locally on an in-memory `<canvas>`.
 
-`Vanilla JS` · `Vite bundle` · `No CDN` · `Strict CSP` · `Unit + Playwright E2E`
+`Vanilla JS` · `Vite bundle` · `No CDN` · `Strict CSP` · `PWA / offline` · `Web Worker` · `Unit + Playwright E2E`
 
 ## ✨ Overview
 
@@ -15,7 +15,7 @@ This project processes one or many images entirely in the browser and hands you 
 | **Language** | Vanilla JavaScript (ES6 modules) |
 | **Build** | Vite — bundles/minifies; hashed first-party assets |
 | **Styling** | Tailwind CSS (v3, compiled at build time) + a small custom stylesheet |
-| **Processing** | `<canvas>` → `toBlob()`, resize via offscreen canvas |
+| **Processing** | Runs in a **Web Worker** (`OffscreenCanvas` + `createImageBitmap`), off the main thread; main-thread fallback for older browsers |
 | **Packaging** | Client-side ZIP via [JSZip](https://stuk.github.io/jszip/) (bundled) |
 | **Testing** | Node built-in runner (unit, in CI) + Playwright (E2E against the production build) |
 
@@ -33,8 +33,10 @@ This project processes one or many images entirely in the browser and hands you 
   - **Resize + Convert** — both in a single pass.
 - **Output formats** — JPG, PNG and WEBP, with a quality slider for the lossy ones. The menu is **built from what your browser can actually encode**, so a format that would be silently faked is never offered.
 - **Verified encoding — two layers of defence.** The startup probe hides unencodable formats, and the converter independently compares the returned `Blob.type` against what was requested. PNG bytes can never ship under an `.avif` name.
-- **Sequential batch pipeline** — images are processed one at a time to keep memory usage low on modest devices; a failed image is skipped (and named in a toast), not fatal to the batch.
+- **Off-main-thread pipeline** — decoding, resizing, encoding and ZIP assembly run in a **Web Worker** (`OffscreenCanvas` + `createImageBitmap`), so even a large batch never freezes the UI; images are processed sequentially to keep memory low, a failed image is skipped (and named in a toast), and browsers without Worker/OffscreenCanvas fall back to the same engine on the main thread.
+- **Defensive decoding** — EXIF orientation is honoured (portrait photos aren't rotated), a decompression-bomb guard rejects absurdly large bitmaps, and SVG input is refused (raster-only).
 - **One-click download** — all successful results are bundled into `converted-images.zip`.
+- **Installable PWA** — a service worker precaches the app shell, so it **installs to the home screen and works fully offline** after the first visit (verified by an E2E test that reloads with the network killed).
 - **Feedback** — spinner, live status text, toasts, and `role`-annotated success/error alerts.
 
 ## 🏛️ Architecture
@@ -43,20 +45,23 @@ The code is organised so that the **image pipeline never touches the DOM**, and 
 
 ```
 index.html              # markup + Tailwind classes
-style/style.css         # custom entrance / toast animations
+public/favicon.png      # static passthrough asset (+ PWA icons)
 src/
-├── main.js             # composition root: app state + wiring
+├── main.js             # composition root: state, Worker orchestration, wiring
+├── styles.css          # Tailwind entry + custom animations (bundled by Vite)
 ├── ui/
 │   ├── dom.js          #   event binding (upload, drag/drop, delegation)
 │   ├── renderer.js     #   DOM rendering, object-URL previews, form reads
 │   └── tabs.js         #   mode tabs (convert / resize / both)
 ├── engine/             # genuinely pure image pipeline — no DOM, no app state
-│   ├── processor.js    #   sequential batch orchestration
+│   ├── worker.js       #   Web Worker entry: runs the pipeline off-thread
+│   ├── processor.js    #   sequential batch orchestration (createImageBitmap)
 │   ├── resizer.js      #   computeResizeDimensions() + canvas resize
 │   ├── capabilities.js #   startup probe: what can this browser really encode?
+│   ├── limits.js       #   shared canvas ceilings (4096px edge, 16.7M px)
 │   └── converter.js    #   mimeFromFormat() + canvas → Blob + substitution guard
 └── utils/
-    ├── zipper.js       #   JSZip wrapper + filename sanitisation
+    ├── zipper.js       #   filename sanitisation, dedup, shared ZIP assembly
     ├── toast.js        #   non-blocking notifications
     └── errorHandler.js #   centralised user-facing messages
 ```

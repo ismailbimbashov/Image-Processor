@@ -66,6 +66,22 @@ export function convertCanvasToBlob(
       resolve(blob);
     };
 
+    // OffscreenCanvas (used inside the Web Worker) exposes a promise-based
+    // convertToBlob instead of the callback-based toBlob.
+    if (typeof canvas.convertToBlob === "function") {
+      canvas
+        .convertToBlob({ type: mimeType, quality: clampedQuality })
+        .then(handleBlob)
+        .catch(() =>
+          reject(
+            new Error(
+              "Conversion failed. Your browser may not support this format.",
+            ),
+          ),
+        );
+      return;
+    }
+
     if (canvas.toBlob) {
       canvas.toBlob(handleBlob, mimeType, clampedQuality);
       return;

@@ -88,3 +88,25 @@ export const generateZipBlob = async (zip) => {
   }
   return zip.generateAsync({ type: "blob" });
 };
+
+/**
+ * Assembles processed results into a single ZIP Blob, de-duplicating entry
+ * names. Shared by the Web Worker and the main-thread fallback so the naming
+ * and packaging logic lives in exactly one place. Returns the ZIP Blob plus a
+ * per-file stats array (keyed by the original input index).
+ */
+export const assembleZipFromResults = async (results, { format, changeFormat }) => {
+  const zip = createZip();
+  const usedNames = new Set();
+  const stats = [];
+
+  for (const { file, blob, originalBytes, newBytes, inputIndex } of results) {
+    const ext = resolveTargetExtension(file.name, format, changeFormat);
+    const entryName = uniqueEntryName(buildTargetFileName(file.name, ext), usedNames);
+    addBlobToZip(zip, entryName, blob);
+    stats.push({ inputIndex, originalBytes, newBytes });
+  }
+
+  const zipBlob = await generateZipBlob(zip);
+  return { zipBlob, stats };
+};

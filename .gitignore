@@ -4,6 +4,8 @@ node_modules/
 
 # Vite build output
 dist/
+# vite-plugin-pwa dev output
+dev-dist/
 
 # Playwright
 test-results/
