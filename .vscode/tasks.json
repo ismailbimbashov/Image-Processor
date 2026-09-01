@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Runs by itself when this folder is opened in VS Code, so the app is
+      // already serving before you look at it. Vite stays running and hot-
+      // reloads on save; there is nothing to type.
+      "label": "Start dev server",
+      "type": "shell",
+      "command": "npm run dev -- --open",
+      "isBackground": true,
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        // Stays out of the way unless something goes wrong.
+        "reveal": "silent",
+        "panel": "dedicated",
+        "clear": true
+      },
+      // Vite is a long-running server, not a compiler; without this VS Code
+      // waits forever for the task to "finish".
+      "problemMatcher": []
+    }
+  ]
+}
