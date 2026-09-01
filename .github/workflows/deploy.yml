@@ -72,21 +72,52 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Requires Pages to have been enabled once, by hand:
-      #   Settings -> Pages -> Source: GitHub Actions
-      # The action's `enablement: true` option was tried and does not work with
-      # the default GITHUB_TOKEN here - it cannot create the Pages site, and
-      # this step then fails with a 404 on "Get Pages site".
+      # Publishing needs a Pages site to exist, which is a repository setting
+      # (Settings -> Pages -> Source: GitHub Actions) and cannot be created by
+      # the default GITHUB_TOKEN. Rather than failing every push until someone
+      # flips it, the job checks first and reports what to do.
+      - name: Check whether Pages is configured
+        id: pages_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages")
+
+          case "$status" in
+            200)
+              echo "enabled=true" >> "$GITHUB_OUTPUT"
+              echo "Pages is configured; continuing with the deploy."
+              ;;
+            404)
+              # The documented "no Pages site yet" answer, and the same signal
+              # actions/configure-pages turns into a hard failure.
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Pages not enabled::Deploy skipped. Turn it on at Settings -> Pages -> Source: GitHub Actions, then re-run this workflow. Everything else already passed."
+              ;;
+            *)
+              # 401/403/5xx mean the check itself is broken. Skipping quietly
+              # here would hide a real deploy failure forever, so fail loudly.
+              echo "::error title=Pages check failed::Unexpected HTTP $status from the Pages API. Not safe to assume Pages is unconfigured."
+              exit 1
+              ;;
+          esac
+
       - name: Configure Pages
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/configure-pages@v5
 
       # Only dist/ is published: the service worker, manifest and hashed assets
       # as Vite emitted them, and nothing else from the repository.
       - name: Upload artifact
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
       - name: Deploy
         id: deployment
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/deploy-pages@v4
