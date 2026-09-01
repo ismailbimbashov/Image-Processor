@@ -160,7 +160,7 @@ APP_URL=http://localhost:5500/ npx playwright test
 Every push and pull request to `main` runs via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
 - **Lint job** — ESLint across `src/`, `tests/` and the build configuration.
-- **Unit job** — the suite on Node 18, 20, and 22, each followed by a production build so a broken bundle cannot pass unnoticed.
+- **Unit job** — the suite on Node 20 and 22, each followed by a production build so a broken bundle cannot pass unnoticed. (Vite 8 requires Node `^20.19 || >=22.12`, so 18 is not supported.)
 - **E2E job** — installs Chromium (cached by Playwright version) and runs the full suite against the real production build; the HTML report is uploaded as an artifact even on failure.
 
 So the pure logic, the bundle *and* the real-browser pipeline are verified on every push.
