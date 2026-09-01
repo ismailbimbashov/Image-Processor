@@ -1,184 +1,297 @@
-# 🖼️ Glass Image Processor — Client-Side Batch Image Pipeline
+<div align="center">
 
-[![CI](https://github.com/ismailbimbashov/Image-Processor/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+# 🖼️ Glass Image Processor
 
-A responsive, **fully client-side** batch image processor built with pure **Vanilla JavaScript (ES6 modules)** and **Tailwind CSS**, bundled by a thin **Vite** build. No framework. Images never leave the browser: every resize and format conversion happens locally on an in-memory `<canvas>`.
+#### Batch-resize, convert and zip images entirely in your browser — no upload, no server, no account.
 
-`Vanilla JS` · `Vite bundle` · `No CDN` · `Strict CSP` · `PWA / offline` · `Web Worker` · `Unit + Playwright E2E`
+[![CI](https://img.shields.io/github/actions/workflow/status/ismailbimbashov/Image-Processor/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/ismailbimbashov/Image-Processor/actions/workflows/ci.yml)
+[![Deploy](https://img.shields.io/github/actions/workflow/status/ismailbimbashov/Image-Processor/deploy.yml?branch=main&style=for-the-badge&logo=githubpages&logoColor=white&label=Deploy)](https://github.com/ismailbimbashov/Image-Processor/actions/workflows/deploy.yml)
+![Node](https://img.shields.io/badge/Node-%5E20.19%20%7C%7C%20%3E%3D22.12-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
+![PWA](https://img.shields.io/badge/PWA-offline%20ready-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-## ✨ Overview
+</div>
 
-This project processes one or many images entirely in the browser and hands you back a single ZIP. It leans on the web platform directly — `File`, `canvas.toBlob()`, `URL.createObjectURL` — while keeping the image logic separated from the DOM so it can be unit-tested in Node.
+---
 
-| | |
-|---|---|
-| **Language** | Vanilla JavaScript (ES6 modules) |
-| **Build** | Vite — bundles/minifies; hashed first-party assets |
-| **Styling** | Tailwind CSS (v3, compiled at build time) + a small custom stylesheet |
-| **Processing** | Runs in a **Web Worker** (`OffscreenCanvas` + `createImageBitmap`), off the main thread; main-thread fallback for older browsers |
-| **Packaging** | Client-side ZIP via [JSZip](https://stuk.github.io/jszip/) (bundled) |
-| **Testing** | Node built-in runner (unit, in CI) + Playwright (E2E against the production build) |
+## Built With
 
-> **Dependency note:** Tailwind and JSZip are **bundled locally by Vite** — the deployed app makes **no runtime CDN calls**, so nothing third-party is fetched at load. This also lets the production build ship a **strict Content-Security-Policy** with no `'unsafe-inline'` or `'unsafe-eval'`.
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite_8-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_3.4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
+![PostCSS](https://img.shields.io/badge/PostCSS-DD3A0A?style=for-the-badge&logo=postcss&logoColor=white)
+![Workbox](https://img.shields.io/badge/Workbox_PWA-5A0FC8?style=for-the-badge&logo=googlechrome&logoColor=white)
+![JSZip](https://img.shields.io/badge/JSZip_3.10-9A6700?style=for-the-badge)
+![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
+![ESLint](https://img.shields.io/badge/ESLint_9-4B32C3?style=for-the-badge&logo=eslint&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
 
-> **Browser encoding note:** `canvas.toBlob()` support varies by format, and browsers do **not** report a missing encoder — they quietly hand back PNG bytes instead. Measured in **Chromium and Firefox**: JPG, PNG and WEBP encode correctly, while **AVIF and GIF silently fall back to PNG** (Safari/WebKit untested). The app therefore probes the browser at startup and removes formats it cannot genuinely encode, so AVIF simply doesn't appear today — and will return by itself once a browser ships the encoder.
+---
 
-## 🚀 Features
+## Overview
 
-- **Upload** — drag-and-drop or browse; accepts multiple image files (JPG, PNG, WEBP, GIF, or any browser-supported image type).
-- **Preview grid** — each selected image is shown with its original → new size, and can be removed individually (with a confirm step).
-- **Three processing modes**:
-  - **Convert** — change output format only.
-  - **Resize** — change dimensions (with optional aspect-ratio lock), keeping the original format.
-  - **Resize + Convert** — both in a single pass.
-- **Output formats** — JPG, PNG and WEBP, with a quality slider for the lossy ones. The menu is **built from what your browser can actually encode**, so a format that would be silently faked is never offered.
-- **Verified encoding — two layers of defence.** The startup probe hides unencodable formats, and the converter independently compares the returned `Blob.type` against what was requested. PNG bytes can never ship under an `.avif` name.
-- **Off-main-thread pipeline** — decoding, resizing, encoding and ZIP assembly run in a **Web Worker** (`OffscreenCanvas` + `createImageBitmap`), so even a large batch never freezes the UI; images are processed sequentially to keep memory low, a failed image is skipped (and named in a toast), and browsers without Worker/OffscreenCanvas fall back to the same engine on the main thread.
-- **Defensive decoding** — EXIF orientation is honoured (portrait photos aren't rotated), a decompression-bomb guard rejects absurdly large bitmaps, and SVG input is refused (raster-only).
-- **One-click download** — all successful results are bundled into `converted-images.zip`.
-- **Installable PWA** — a service worker precaches the app shell, so it **installs to the home screen and works fully offline** after the first visit (verified by an E2E test that reloads with the network killed).
-- **Feedback** — spinner, live status text, toasts, and `role`-annotated success/error alerts.
+Glass Image Processor takes one or many images, runs them through a batch pipeline — resize, format conversion, or both — and hands back a single `converted-images.zip`. The work happens on a canvas inside your own browser, off the main thread in a Web Worker where the platform allows it. Nothing is uploaded, and the app installs as a PWA that keeps working with no network at all.
 
-## 🏛️ Architecture
+**Why you might want it.** Batch-converting a folder of screenshots usually means a desktop tool or an upload form you have to trust with your files. This does it locally from a page you can install and run offline. It is also unusually honest about formats: browsers silently return PNG bytes when asked for an encoder they lack, so the app probes what it can really write and removes the rest from the menu, then verifies output by magic bytes in its own test suite.
 
-The code is organised so that the **image pipeline never touches the DOM**, and the **DOM layer never touches the canvas math**. That boundary is what makes the core unit-testable without a browser.
+**Why you might not.** It can only encode what the browser can encode — in Chromium that rules out AVIF and GIF output. Sources are clamped to 4096px per edge and ~16.7M pixels before processing. SVG is rejected outright: this is a raster pipeline. There is no persistence, no history, and no queue — close the tab and the batch is gone. And it is a single-purpose tool, not a photo editor: no cropping, filters, or colour management.
 
-```
-index.html              # markup + Tailwind classes
-vite.config.js          # build, PWA manifest/SW, strict CSP injection
-eslint.config.js        # flat config: browser, worker, Node and config envs
-public/favicon.png      # static passthrough asset (+ PWA icons)
-src/
-├── main.js             # composition root: state, Worker orchestration, wiring
-├── styles.css          # Tailwind entry + custom animations (bundled by Vite)
-├── ui/
-│   ├── dom.js          #   event binding (upload, drag/drop, delegation)
-│   ├── renderer.js     #   DOM rendering, object-URL previews, form reads
-│   └── tabs.js         #   mode radio group (convert / resize / both)
-├── engine/             # genuinely pure image pipeline — no DOM, no app state
-│   ├── worker.js       #   Web Worker entry: runs the pipeline off-thread
-│   ├── processor.js    #   sequential batch orchestration (createImageBitmap)
-│   ├── resizer.js      #   computeResizeDimensions() + canvas resize
-│   ├── capabilities.js #   startup probe: what can this browser really encode?
-│   ├── limits.js       #   shared canvas ceilings (4096px edge, 16.7M px)
-│   └── converter.js    #   mimeFromFormat() + canvas → Blob + substitution guard
-└── utils/
-    ├── zipper.js       #   filename sanitisation, dedup, shared ZIP assembly
-    ├── toast.js        #   non-blocking notifications
-    └── errorHandler.js #   centralised user-facing messages
-tests/
-├── unit/               # Node's built-in runner — no browser
-├── e2e/                # Playwright against the production build
-└── playwright.config.js
-.github/workflows/
-├── ci.yml              # lint + unit matrix (with build) + E2E
-└── deploy.yml          # verify, then publish dist/ to GitHub Pages
+---
+
+## Features
+
+- 🖱️ **Drag-and-drop or browse** — multi-select through a real drop handler ([`src/ui/dom.js`](src/ui/dom.js))
+- 🚫 **Non-raster input rejected** — non-images and `image/svg+xml` never reach the pipeline ([`src/ui/dom.js`](src/ui/dom.js))
+- 🧮 **Three modes** — Convert, Resize, or Resize + Convert in one pass ([`src/ui/tabs.js`](src/ui/tabs.js))
+- 🔎 **Real encoder probing** — a 1×1 test encode per format; whatever the browser cannot write is removed from the menu ([`src/engine/capabilities.js`](src/engine/capabilities.js))
+- 🏷️ **Substitution guard** — output is named for the bytes actually produced, never the format merely requested ([`src/engine/converter.js`](src/engine/converter.js))
+- 🧵 **Off-thread pipeline** — an `OffscreenCanvas` Web Worker, with an automatic main-thread fallback ([`src/engine/worker.js`](src/engine/worker.js))
+- 🧭 **EXIF orientation honoured** — decoding applies `imageOrientation` so rotated photos stay upright ([`src/engine/processor.js`](src/engine/processor.js))
+- 🛡️ **Decompression-bomb guard** — shared canvas ceilings clamp both decode and resize targets ([`src/engine/limits.js`](src/engine/limits.js))
+- 🔒 **Aspect-ratio lock** — fill one dimension and the other follows ([`src/engine/resizer.js`](src/engine/resizer.js))
+- 🐢 **Sequential batch with partial tolerance** — a failed file is skipped and named; the rest still complete ([`src/engine/processor.js`](src/engine/processor.js))
+- 📦 **Collision-safe ZIP entries** — same-named inputs get distinct entries, and names are sanitised against path traversal ([`src/utils/zipper.js`](src/utils/zipper.js))
+- ↩️ **Two-click inline delete** — no blocking `window.confirm`, and controls lock while a batch runs ([`src/main.js`](src/main.js))
+- ♿ **Keyboard-navigable** — the mode switch is a radio group with arrow, Home and End keys and a roving tabindex ([`src/ui/tabs.js`](src/ui/tabs.js))
+- 📲 **Installable and offline** — service worker precaches the app shell ([`vite.config.js`](vite.config.js))
+- 🔐 **Strict CSP** — `default-src 'none'`, no inline script or style, injected into the production build ([`vite.config.js`](vite.config.js))
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/ismailbimbashov/Image-Processor.git
+cd Image-Processor
+npm install
+npm run dev
 ```
 
-| Layer | Responsibility | Boundary |
+Vite prints a local URL — open it and drop in some images.
+
+---
+
+<details>
+<summary><b>📦 Detailed Setup Guide</b></summary>
+
+### a. Prerequisites
+
+| Tool | Version | Why |
 |---|---|---|
-| **engine** | Resize math, format→MIME mapping, canvas→Blob, batch loop | **Genuinely pure — it never references `document`.** The canvas and a `createCanvas` factory are injected by `main.js`, so the whole layer (including `applyResize`) is unit-tested in Node against mock surfaces. |
-| **utils** | ZIP assembly, filename sanitisation, toasts, errors | `sanitizeBaseName` / `sanitizeExtension` / `resolveTargetExtension` are pure and tested; ZIP entry names are sanitised against path traversal. |
-| **ui** | All DOM reads/writes, previews, event delegation | The only place allowed to touch the DOM. |
-| **main.js** | Holds the single source of truth for selected files/stats and wires the layers together | Owns state; delegates work downward. |
+| Node.js | `^20.19.0 \|\| >=22.12.0` (from `engines`) | Vite 8 does not run on Node 18 |
+| npm | ships with Node | Dependency install |
+| Chromium | installed via Playwright | E2E suite only |
 
-## ⚡ Getting Started
-
-```bash
-npm install        # install dependencies
-npm run dev        # Vite dev server with hot reload
-npm run lint       # ESLint across src/, tests/ and the configs
-```
-
-For a production bundle (minified, hashed assets, strict CSP injected):
+### b. Clone & install
 
 ```bash
-npm run build      # outputs to dist/
-npm run preview    # serve the built dist/ locally
+git clone https://github.com/ismailbimbashov/Image-Processor.git
+cd Image-Processor
+npm install
+npx playwright install chromium   # one-time, for the E2E suite
 ```
 
-`dist/` is fully static — deploy it to any static host (GitHub Pages, Netlify, Cloudflare Pages). The `base: "./"` in `vite.config.js` makes it work from a sub-path too.
+### c. Environment variables
 
-## 🧪 Testing
+The app reads no environment variables. These three are consumed by [`tests/playwright.config.js`](tests/playwright.config.js) only:
 
-Two layers, mirroring the architecture:
+| Variable | Required | Description | Example |
+|---|---|---|---|
+| `PORT` | No | Port the Playwright-managed preview server binds to. Defaults to `8000`. | `5500` |
+| `APP_URL` | No | Base URL to test against. Defaults to `http://localhost:${PORT}/`. | `http://localhost:5500/` |
+| `CI` | No | Set by GitHub Actions; disables reuse of an already-running server. | `true` |
 
-### Unit tests — `tests/unit/` (in CI)
+### d. Database setup
 
-Fast tests on Node's built-in runner (`npm ci` first — the engine imports the bundled `jszip`). Because the engine is genuinely DOM-free, they cover the real pipeline logic — not just leaf helpers — with no browser:
+Not applicable — there is no backend and no persistence layer.
 
-- `computeResizeDimensions` — aspect-lock, single-axis, clamping to ≥1px.
-- `applyResize` — driven through an **injected mock `createCanvas` factory**, asserting the resize, the smoothing settings, and that the scratch surface is released.
-- `fitWithinCanvasLimits` — Safari/iOS backing-store clamping (4096px edge, 16.7M pixels).
-- `mimeFromFormat` — format→MIME mapping and fallbacks.
-- `detectEncodableFormats` — the startup probe, including the silent PNG-substitution case and the "can't probe" fallback.
-- `convertCanvasToBlob` — the substitution guard, driven by a mock encoder (covers AVIF *and* GIF-in-resize-mode).
-- `sanitizeBaseName` / `sanitizeExtension` / `resolveTargetExtension` — filename and path-traversal hardening.
+### e. Run the development server
 
 ```bash
-npm test
+npm run dev       # Vite dev server with HMR
+npm run build     # production bundle into dist/
+npm run preview   # serve the built bundle exactly as it deploys
 ```
 
-### End-to-end tests — `tests/e2e/` (Playwright, real browser)
+The strict CSP is injected at **build** time only, so `npm run dev` intentionally runs without it (HMR needs inline script). Test against `build` + `preview`.
 
-Playwright drives the actual canvas pipeline in Chromium **against the real production build** (`vite build` → `vite preview`), so the strict CSP and bundled assets are exercised too. Crucially, it **unzips the downloaded ZIP and asserts the output's magic bytes** — an extension alone is not accepted as proof of format.
+### f. Run the tests
 
 ```bash
-npm install                       # installs deps incl. @playwright/test
-npx playwright install chromium   # one-time browser download
-npm run test:e2e                  # headless (starts the server for you)
-npm run test:e2e:headed           # watch it run in a real browser
-npm run test:e2e:ui               # interactive UI mode
+npm run lint                       # ESLint across src, tests and configs
+npm test                           # unit suite (Node's built-in runner)
+npm run test:e2e                   # Playwright against the production build
+npm run test:e2e:headed            # watch it in a real browser
+npm run test:e2e:ui                # interactive UI mode
+npx playwright show-report         # HTML report from the last run
 ```
 
-Override the port/URL if you serve elsewhere:
+Point the E2E suite elsewhere:
 
 ```bash
 PORT=5500 npm run test:e2e
-# or point at an already-running server:
-APP_URL=http://localhost:5500/ npx playwright test
+APP_URL=http://localhost:5500/ npm run test:e2e
 ```
 
-| E2E test | Verifies |
+</details>
+
+---
+
+<details>
+<summary><b>📁 Project Structure</b></summary>
+
+```
+Image-Processor/
+├── index.html                  # the single page: markup + Tailwind classes
+├── vite.config.js              # build, PWA manifest/service worker, CSP injection
+├── eslint.config.js            # flat config: browser, worker, Node and config envs
+├── public/                     # passthrough assets (favicon, PWA icons)
+├── src/
+│   ├── main.js                 # composition root: state, Worker orchestration, SW registration
+│   ├── styles.css              # Tailwind entry + custom animations
+│   ├── ui/                     # the ONLY layer permitted to touch the DOM
+│   │   ├── dom.js              #   event binding, upload, drag/drop, input filtering
+│   │   ├── renderer.js         #   rendering, previews, form reads, delete arming
+│   │   └── tabs.js             #   mode radio group (convert / resize / both)
+│   ├── engine/                 # DOM-free pipeline — surfaces are injected
+│   │   ├── worker.js           #   Web Worker entry, runs the pipeline off-thread
+│   │   ├── processor.js        #   batch loop, decode (EXIF-aware), canvas clamping
+│   │   ├── resizer.js          #   dimension maths + in-place canvas resize
+│   │   ├── capabilities.js     #   startup probe: what can this browser really encode?
+│   │   ├── converter.js        #   MIME mapping, canvas → Blob, substitution guard
+│   │   └── limits.js           #   shared canvas ceilings (4096px edge, 16.7M px)
+│   └── utils/
+│       ├── zipper.js           #   ZIP assembly, filename sanitisation, entry dedup
+│       ├── toast.js            #   non-blocking notifications
+│       └── errorHandler.js     #   centralised user-facing messages
+├── tests/
+│   ├── unit/                   # 55 tests, Node's runner, no browser
+│   ├── e2e/                    # 21 Playwright tests against the built app
+│   └── playwright.config.js
+└── .github/workflows/
+    ├── ci.yml                  # lint + unit matrix (with build) + E2E
+    └── deploy.yml              # verify, then publish dist/ to GitHub Pages
+```
+
+### The architectural rule
+
+The engine never touches the DOM, and the UI never does canvas maths. Surfaces are injected rather than fetched from `document`, which is what lets the identical modules run on the main thread **and** inside the Worker — and be unit-tested in Node against mock canvases, with no browser and no mocking framework.
+
+| Layer | Responsibility | Boundary |
+|---|---|---|
+| `engine/` | Resize maths, MIME mapping, encoding, probing, batch loop | No DOM reference anywhere; canvas and factories are arguments |
+| `utils/` | ZIP assembly, filename safety, toasts, error copy | Pure helpers, directly unit-tested |
+| `ui/` | All DOM reads and writes, previews, event delegation | The only layer that may call `document` |
+| `main.js` | Owns state, orchestrates the Worker, wires the layers | Delegates all work downward |
+
+</details>
+
+---
+
+## 🧪 Testing
+
+![Unit tests](https://img.shields.io/badge/unit-55_passing-brightgreen?style=flat-square)
+![E2E tests](https://img.shields.io/badge/e2e-21_passing-brightgreen?style=flat-square)
+![Lint](https://img.shields.io/badge/eslint-clean-brightgreen?style=flat-square)
+
+Two layers, mirroring the architecture.
+
+**Unit — `tests/unit/`.** 55 tests on Node's built-in runner, no browser. Because the engine is genuinely DOM-free these cover the real pipeline, not just leaf helpers: resize maths, `applyResize` driven through a mock `createCanvas` factory, canvas-limit clamping, MIME mapping, the encoder probe including the silent PNG-substitution case, and filename/path-traversal hardening.
+
+**E2E — `tests/e2e/`.** 21 Playwright tests in Chromium, run against the **real production build** (`vite build` → `vite preview`), so the strict CSP, the bundled dependencies and the service worker are all exercised. The suite unzips each download and asserts **magic bytes** — a `.png` extension is not accepted as proof of PNG.
+
+```bash
+npm test                                   # unit
+npm run test:e2e                           # full E2E suite
+npm run test:e2e:ui                        # interactive UI mode
+npx playwright test --config tests/playwright.config.js -g "signature"
+npx playwright show-report
+```
+
+| Area | What is verified |
 |---|---|
-| Upload → preview | Selecting a file renders a preview tile and hides the placeholder. |
-| Convert pipeline | Running the pipeline enables the ZIP download and shows success. |
-| **PNG signature** | The `.png` entry in the ZIP really starts with `\x89PNG`. |
-| **JPG signature** | The `.jpg` entry really starts with `FF D8 FF`. |
-| **WEBP signature** | The `.webp` entry really carries a `RIFF….WEBP` header. |
-| **Capability detection** | Formats the browser can't encode are dropped from the menu (AVIF disappears in Chromium); the rest survive. |
-| **Safe default** | The selected format is always one the browser can actually encode. |
-| Resize + Convert | The combined mode produces a file with a valid signature. |
-| **Resize-only** | The mode is runnable, and the output keeps its original format (checked by signature). |
-| **Actions reachable** | Run Pipeline and Download stay visible in all three modes. |
-| **Mode switch a11y** | The switch is a radio group with arrow-key navigation and a roving tabindex. |
-| **Aspect lock** | The toggle is named, and its knob actually follows its state. |
-| Delete | Removing an image uses a two-click inline confirm, and is locked while a batch runs. |
+| Output integrity | PNG, JPG and WEBP entries carry real file signatures |
+| Capability detection | Unencodable formats leave the menu; the selection always falls back to an encodable one |
+| Modes | Convert, resize-only (format preserved), and resize + convert; actions reachable in all three |
+| Robustness | Over-limit resize clamped not hung; partial batches zip only successes; same-named inputs stay distinct |
+| Platform | Installable manifest, service worker offline, main-thread fallback without `OffscreenCanvas`, SVG rejected |
+| Accessibility | Mode switch is a radio group with arrow keys; aspect lock is named and its knob tracks state |
 
-## 🔄 Continuous Integration
+> No coverage tool is configured, so there is no coverage badge.
 
-Every push and pull request to `main` runs via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+---
 
-- **Lint job** — ESLint across `src/`, `tests/` and the build configuration.
-- **Unit job** — the suite on Node 20 and 22, each followed by a production build so a broken bundle cannot pass unnoticed. (Vite 8 requires Node `^20.19 || >=22.12`, so 18 is not supported.)
-- **E2E job** — installs Chromium (cached by Playwright version) and runs the full suite against the real production build; the HTML report is uploaded as an artifact even on failure.
+## ⚙️ CI/CD
 
-So the pure logic, the bundle *and* the real-browser pipeline are verified on every push.
+**[`ci.yml`](.github/workflows/ci.yml)** runs on every push and pull request to `main`:
+
+- **`lint`** — ESLint across `src/`, `tests/` and the build configs.
+- **`unit`** — the suite on Node 20 and 22, each followed by a production build, so a broken bundle cannot pass unnoticed. `fail-fast` is off so one version cannot hide the others.
+- **`e2e`** — Chromium (cached by Playwright version), full suite against the built app; the HTML report uploads as an artifact even on failure.
+
+**[`deploy.yml`](.github/workflows/deploy.yml)** runs on push to `main` and on manual dispatch: it lints and unit-tests, then builds and publishes `dist/` to GitHub Pages.
+
+```mermaid
+graph LR
+  A[Push / PR to main] --> B[lint]
+  A --> C[unit: Node 20, 22 + build]
+  A --> D[e2e: Chromium]
+  D --> E[Upload report]
+  A --> F[verify: lint + unit]
+  F --> G[Build]
+  G --> H[Deploy to Pages]
+```
+
+---
 
 ## 🚀 Deployment
 
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds the bundle and publishes `dist/` to GitHub Pages on every push to `main`, after lint and the unit suite pass. It can also be triggered by hand from the Actions tab.
+`npm run build` emits a fully static `dist/` — hashed assets, a generated service worker, and the strict CSP inlined into the HTML. `vite.config.js` sets `base: "./"`, so the same build works from a domain root or a project sub-path without reconfiguration.
 
-**It stays inert until Pages is enabled**: repository **Settings → Pages → Source: GitHub Actions**. Because `vite.config.js` sets `base: "./"`, the same build works from a project sub-path or a domain root, so no configuration changes when you move hosts.
+[`deploy.yml`](.github/workflows/deploy.yml) publishes it to GitHub Pages automatically. **It stays inert until Pages is enabled**: repository **Settings → Pages → Source: GitHub Actions**.
+
+For any other static host (Netlify, Cloudflare Pages, S3), build and upload `dist/` as-is. There is no runtime, no server configuration, and no environment variables to set.
+
+---
+
+## Design Goals
+
+- **The browser is the whole runtime.** No backend exists to trust, so privacy is structural rather than promised.
+- **Testability as an architectural constraint.** The engine takes its surfaces as arguments, which is why the pipeline is unit-tested in Node and can be reused verbatim inside a Worker.
+- **No silent lies.** Encoders are probed rather than assumed, files are named after their real bytes, clamping and substitutions are reported, and tests assert magic bytes rather than extensions.
+- **Responsive under load.** Work moves off the main thread when `OffscreenCanvas` exists and degrades to a sequential main-thread loop when it does not.
+- **Small surface, hardened edges.** One runtime dependency, a strict CSP, and explicit guards for oversized images, SVG input and colliding filenames.
+
+---
+
+## Comparable Tools
+
+| Project | How this differs |
+|---|---|
+| [Squoosh](https://squoosh.app/) | Squoosh ships WASM codecs (MozJPEG, OxiPNG, AVIF) and focuses on one image at a time. This is batch-first and canvas-only: narrower encoding support, far smaller payload. |
+| [TinyPNG](https://tinypng.com/) | TinyPNG uploads your images and compresses them server-side. This never sends a byte anywhere. |
+| [ImageMagick](https://imagemagick.org/) / [sharp](https://sharp.pixelplumbing.com/) | Far more capable, but need a CLI or a Node backend. This is a page you can install and hand to a non-technical user. |
+
+---
 
 ## 🤝 Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the architectural rule, where tests belong, and the list of things that are easy to break. Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md). The short version:
+Fork, branch from `main`, and open a pull request against `main`.
+
+Keep the layer boundary intact: if logic can be written without touching the DOM it belongs in `src/engine/` or `src/utils/`, with a unit test beside it. E2E tests go in `tests/e2e/` and should assert file signatures rather than extensions.
+
+Run all three checks before opening a PR — CI runs the same ones:
 
 ```bash
 npm run lint && npm test && npm run test:e2e
 ```
 
+Commit subjects in this repository follow a `v.<version>/<step>: <summary>` pattern (for example `v.2/1: Vite build + strict CSP + clean project structure`).
+
+---
+
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE). Free to use, fork, modify and distribute as you wish.
+MIT — see [LICENSE](LICENSE). Free to fork, modify and distribute.
