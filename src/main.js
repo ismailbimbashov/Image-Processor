@@ -1,27 +1,108 @@
+import "./styles.css";
+import { registerSW } from "virtual:pwa-register";
 import { registerUiEvents } from "./ui/dom.js";
 import { createRenderer } from "./ui/renderer.js";
 import { initTabs } from "./ui/tabs.js";
 import { processFilesSequential } from "./engine/processor.js";
 import { detectEncodableFormats } from "./engine/capabilities.js";
-import {
-  createZip,
-  addBlobToZip,
-  generateZipBlob,
-  buildTargetFileName,
-  getTargetExtension,
-  resolveTargetExtension,
-  uniqueEntryName,
-} from "./utils/zipper.js";
+import { getTargetExtension, assembleZipFromResults } from "./utils/zipper.js";
 import { ErrorHandler } from "./utils/errorHandler.js";
 import { showToast } from "./utils/toast.js";
+
+// Register the service worker so the app is installable and works offline.
+// `immediate` activates it on first load; auto-update ships new versions.
+registerSW({ immediate: true });
 
 const renderer = createRenderer();
 const errorHandler = new ErrorHandler(renderer);
 
-// The engine is DOM-free; the composition root owns the canvas surfaces and
-// hands them down.
-const hiddenCanvas = document.getElementById("hiddenCanvas");
+// Used by the startup capability probe (and the main-thread fallback below).
 const createCanvas = () => document.createElement("canvas");
+
+// The heavy image pipeline runs in a Web Worker so a large batch never freezes
+// the UI. Older browsers without Worker/OffscreenCanvas fall back to running it
+// inline on the main thread — same engine, same shared ZIP assembly.
+const canOffloadToWorker =
+  typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined";
+
+let worker = null;
+const getWorker = () => {
+  if (!worker) {
+    worker = new Worker(new URL("./engine/worker.js", import.meta.url), {
+      type: "module",
+    });
+  }
+  return worker;
+};
+
+// Runs the pipeline in the Worker, resolving with the finished ZIP payload and
+// forwarding progress. Rejects on a worker crash or pipeline error.
+const runInWorker = (files, options, onProgress) =>
+  new Promise((resolve, reject) => {
+    const w = getWorker();
+    const cleanup = () => {
+      w.removeEventListener("message", onMessage);
+      w.removeEventListener("error", onError);
+    };
+    const onMessage = (event) => {
+      const msg = event.data;
+      if (msg.type === "progress") {
+        onProgress?.(msg.index, msg.total);
+        return;
+      }
+      cleanup();
+      if (msg.type === "error") reject(new Error(msg.message));
+      else resolve(msg);
+    };
+    const onError = (err) => {
+      cleanup();
+      // A crashed worker is discarded so the next run spawns a fresh one.
+      worker = null;
+      reject(new Error(err.message || "Background processing failed."));
+    };
+    w.addEventListener("message", onMessage);
+    w.addEventListener("error", onError);
+    w.postMessage({ type: "process", files, options });
+  });
+
+// Fallback: run the same engine inline, then assemble the ZIP with the shared
+// helper. Uses OffscreenCanvas when present, otherwise a DOM canvas.
+const runOnMainThread = async (files, options, onProgress) => {
+  const makeCanvas = () =>
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(1, 1)
+      : document.createElement("canvas");
+  const failures = [];
+
+  const { results, total, successCount } = await processFilesSequential(files, {
+    ...options,
+    canvas: makeCanvas(),
+    createCanvas: makeCanvas,
+    onProgress,
+    onFileError: (file, error, inputIndex) =>
+      failures.push({
+        inputIndex,
+        name: file?.name ?? "image",
+        message: error?.message ?? "Failed to process image.",
+      }),
+  });
+
+  if (successCount === 0) {
+    return { zipBlob: null, total, successCount: 0, stats: [], failures };
+  }
+
+  const changeFormat = options.mode === "convert" || options.mode === "both";
+  const { zipBlob, stats } = await assembleZipFromResults(results, {
+    format: options.format,
+    changeFormat,
+  });
+  return { zipBlob, total, successCount, stats, failures };
+};
+
+const runPipeline = (files, options, onProgress) =>
+  canOffloadToWorker
+    ? runInWorker(files, options, onProgress)
+    : runOnMainThread(files, options, onProgress);
 
 let currentMode = "convert";
 
@@ -36,7 +117,7 @@ const tabs = initTabs({
 const MAX_FILES = 500;
 
 let selectedFiles = [];
-let currentZip = null;
+let currentZipBlob = null;
 let isProcessing = false;
 let deletePendingTimer = null;
 currentMode = tabs?.getMode() ?? currentMode;
@@ -62,7 +143,7 @@ const acceptSelection = (files) => {
   }
 
   selectedFiles = accepted;
-  currentZip = null;
+  currentZipBlob = null;
   renderer.setZipReady(false);
   errorHandler.clear();
   clearTimeout(deletePendingTimer);
@@ -148,7 +229,7 @@ const handleDeleteImage = (index) => {
   }
 
   // Any structural change invalidates previously prepared ZIP.
-  currentZip = null;
+  currentZipBlob = null;
   renderer.setZipReady(false);
 
   if (selectedFiles.length === 0) {
@@ -235,71 +316,40 @@ const handleConvertAll = async () => {
     `Running ${currentMode} pipeline for ${selectedFiles.length} images${targetSuffix}...`,
   );
 
-  const failures = [];
+  // Snapshot the batch: the pipeline runs async and the stats/failures come
+  // back keyed by input index, so we resolve them against this exact array.
+  const batch = selectedFiles;
 
   try {
-    const { results, total, successCount } = await processFilesSequential(
-      selectedFiles,
-      {
-        mode: currentMode,
-        format,
-        quality,
-        resizeOptions,
-        canvas: hiddenCanvas,
-        createCanvas,
-        onProgress: (index, totalCount) => {
-          renderer.setStatus(
-            `Processing ${index} of ${totalCount} images...`,
-          );
-        },
-        onFileError: (file, error) => {
-          failures.push({ file, error });
-        },
+    const { zipBlob, total, successCount, stats, failures } = await runPipeline(
+      batch,
+      { mode: currentMode, format, quality, resizeOptions },
+      (index, totalCount) => {
+        renderer.setStatus(`Processing ${index} of ${totalCount} images...`);
       },
     );
 
-    reportFileFailures(failures);
+    reportFileFailures(
+      failures.map(({ inputIndex, message }) => ({
+        file: batch[inputIndex],
+        error: { message },
+      })),
+    );
 
-    if (successCount === 0) {
+    if (successCount === 0 || !zipBlob) {
       renderer.setLoading(false, false);
-      currentZip = null;
+      currentZipBlob = null;
       renderer.setZipReady(false);
       errorHandler.allConversionsFailed();
       return;
     }
 
-    let zip;
-    try {
-      zip = createZip();
-    } catch (error) {
-      renderer.setLoading(false, false);
-      errorHandler.jsZipUnavailable(error);
-      return;
-    }
-
-    const usedNames = new Set();
-
-    results.forEach(({ file, blob, originalBytes, newBytes }) => {
-      const finalExt = resolveTargetExtension(
-        file.name,
-        format,
-        isFormatChangingMode,
-      );
-      // De-duplicate so two inputs sharing a basename never overwrite each
-      // other in the archive (e.g. photo.webp, photo-2.webp).
-      const newName = uniqueEntryName(
-        buildTargetFileName(file.name, finalExt),
-        usedNames,
-      );
-      addBlobToZip(zip, newName, blob);
-
-      fileStats.set(file, {
-        originalBytes,
-        newBytes,
-      });
+    stats.forEach(({ inputIndex, originalBytes, newBytes }) => {
+      const file = batch[inputIndex];
+      if (file) fileStats.set(file, { originalBytes, newBytes });
     });
 
-    currentZip = zip;
+    currentZipBlob = zipBlob;
     renderer.setLoading(false, true);
     renderer.setZipReady(true);
 
@@ -319,7 +369,7 @@ const handleConvertAll = async () => {
     });
   } catch (error) {
     renderer.setLoading(false, false);
-    currentZip = null;
+    currentZipBlob = null;
     renderer.setZipReady(false);
     errorHandler.genericConversionError(error);
   } finally {
@@ -332,17 +382,15 @@ const handleConvertAll = async () => {
 const handleDownloadZip = async () => {
   errorHandler.clear();
 
-  if (!currentZip) {
+  // The ZIP Blob was already produced by the pipeline, so download is just a
+  // trigger — no regeneration needed.
+  if (!currentZipBlob) {
     errorHandler.noZipReady();
     return;
   }
 
-  renderer.setLoading(true, true);
-  renderer.setStatus("Preparing ZIP file for download...");
-
   try {
-    const blob = await generateZipBlob(currentZip);
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(currentZipBlob);
     const link = document.createElement("a");
     link.href = url;
     link.download = "converted-images.zip";
@@ -351,7 +399,6 @@ const handleDownloadZip = async () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    renderer.setLoading(false, true);
     renderer.showSuccess("ZIP download started.");
     showToast({
       message: "Your ZIP download has started.",
@@ -359,7 +406,6 @@ const handleDownloadZip = async () => {
       duration: 2500,
     });
   } catch (error) {
-    renderer.setLoading(false, true);
     errorHandler.zipGenerationError(error);
   }
 };

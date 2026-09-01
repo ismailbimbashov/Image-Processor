@@ -2,30 +2,29 @@ import { applyResize } from "./resizer.js";
 import { convertCanvasToBlob } from "./converter.js";
 import { MAX_EDGE, MAX_PIXELS } from "./limits.js";
 
+// A file can decode to a bitmap far larger than its byte size suggests
+// (a "decompression bomb"); cap the decoded pixel area so one hostile file
+// can't exhaust memory.
+const MAX_DECODE_PIXELS = 100_000_000;
+
 const decodeFile = async (file) => {
-  // An object URL keeps the bytes out of the JS heap entirely; a data URL
-  // would have materialised the whole file as a base64 string first.
-  const url = URL.createObjectURL(file);
-
+  let bitmap;
   try {
-    const img = new Image();
-
-    await new Promise((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () =>
-        reject(new Error("Unable to load image for processing."));
-      img.src = url;
-    });
-
-    if (typeof img.decode === "function") {
-      // Guarantees the pixels are ready before the URL is revoked below.
-      await img.decode().catch(() => {});
-    }
-
-    return img;
-  } finally {
-    URL.revokeObjectURL(url);
+    // `imageOrientation: "from-image"` bakes in the EXIF orientation so portrait
+    // photos aren't silently rotated. createImageBitmap runs on the main thread
+    // AND inside a Web Worker (unlike `new Image()`), which is what lets the
+    // whole pipeline move off the main thread.
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    throw new Error("Unable to load image for processing.");
   }
+
+  if (bitmap.width * bitmap.height > MAX_DECODE_PIXELS) {
+    bitmap.close?.();
+    throw new Error("Image is too large to process safely.");
+  }
+
+  return bitmap;
 };
 
 /**
@@ -55,8 +54,8 @@ const drawImageToCanvas = (canvas, ctx, img) => {
     throw new Error("Canvas context is not available for processing.");
   }
 
-  const sourceWidth = img.naturalWidth || img.width;
-  const sourceHeight = img.naturalHeight || img.height;
+  const sourceWidth = img.width;
+  const sourceHeight = img.height;
 
   // A dimensionless SVG (or a corrupt file) would otherwise yield a 0x0
   // canvas and fail silently further down the pipeline.
@@ -166,9 +165,13 @@ export async function processFilesSequential(
       try {
         onProgress?.(index, total, file);
 
+        // Deliberate: images are decoded one at a time to cap peak memory.
+        // eslint-disable-next-line no-await-in-loop
         const img = await decodeFile(file);
 
         drawImageToCanvas(canvas, ctx, img);
+        // The canvas now holds the pixels; free the decoded bitmap immediately.
+        img.close?.();
 
         const state = { file, outputBlob: null };
 
@@ -180,6 +183,9 @@ export async function processFilesSequential(
         // Execute pipeline steps sequentially for this image.
         for (const step of pipeline) {
           // Allow steps to use and mutate `state`.
+          // Deliberate: each step mutates the shared canvas, so they must not
+          // overlap.
+          // eslint-disable-next-line no-await-in-loop
           await step(state);
         }
 
@@ -193,17 +199,20 @@ export async function processFilesSequential(
           blob: outputBlob,
           originalBytes: file.size,
           newBytes: outputBlob.size,
+          inputIndex: index - 1,
         });
         successCount += 1;
       } catch (error) {
         // A single bad file never fails the batch, but the caller owns how the
         // failure is surfaced; the engine does not report to the console.
-        onFileError?.(file, error);
+        onFileError?.(file, error, index - 1);
       }
 
       // Yield a macro-task between images so the browser can paint the
       // progress update and stay responsive during a large batch. Canvas work
       // is synchronous and would otherwise monopolise the main thread.
+      // Deliberate: the yield only has value if it happens between images.
+      // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => {
         setTimeout(resolve, 0);
       });

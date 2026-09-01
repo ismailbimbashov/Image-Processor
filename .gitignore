@@ -2,6 +2,11 @@ node_modules/
 .DS_Store
 *.log
 
+# Vite build output
+dist/
+# vite-plugin-pwa dev output
+dev-dist/
+
 # Playwright
 test-results/
 playwright-report/

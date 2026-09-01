@@ -7,50 +7,12 @@
       content="width=device-width, initial-scale=1.0"
     />
     <!--
-      Content-Security-Policy: constrains what may load/execute, so a
-      compromised CDN cannot inject arbitrary script or exfiltrate data.
-      - script-src does NOT allow 'unsafe-inline' (no inline <script> is used).
-      - style-src allows 'unsafe-inline' because the Tailwind CDN runtime
-        injects a <style> element at runtime; that is its documented behaviour.
-      - img-src allows blob:/data: for the object-URL previews and the
-        toDataURL() encoder fallback.
+      Content-Security-Policy is injected into the built HTML by vite.config.js
+      (production only), so the strict policy doesn't fight Vite's dev server.
+      Tailwind and JSZip are now bundled locally — no CDN, no SRI needed.
     -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'none';
-               script-src 'self' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com;
-               style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com;
-               img-src 'self' blob: data:;
-               font-src 'self';
-               connect-src 'self';
-               base-uri 'none';
-               form-action 'none';
-               object-src 'none'"
-    />
-    <link rel="icon" type="image/x-icon" href="./style/image/image-.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Image Processor</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!--
-      JSZip for batch ZIP downloads.
-      SECURITY: the integrity hash below pins the exact bytes of JSZip 3.10.1.
-      If the CDN file changes (or you bump the version), the browser will
-      REFUSE to load it and ZIP downloads will break until you regenerate it:
-        curl -fsSL <this url> | openssl dgst -sha384 -binary | openssl base64 -A
-      (Placeholder form, if you prefer to fill it in yourself:
-       integrity="sha384-REPLACE_ME_WITH_REAL_HASH")
-    -->
-    <script
-      src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
-      integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
-      crossorigin="anonymous"
-      referrerpolicy="no-referrer"
-    ></script>
-    <!-- Custom styles -->
-    <link
-      rel="stylesheet"
-      href="./style/style.css"
-    />
   </head>
   <body
     class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 bg-[radial-gradient(circle_at_top,_#1f2937,_#020617)]"
@@ -165,15 +127,16 @@
           <div
             id="modeTabs"
             class="inline-flex rounded-full bg-white/5 p-1 text-xs sm:text-sm"
-            role="tablist"
+            role="radiogroup"
             aria-label="Processing mode"
           >
             <button
               type="button"
               class="px-3 py-1.5 rounded-full font-medium text-slate-200 bg-slate-900/70 shadow-sm shadow-black/40"
               data-mode="convert"
-              role="tab"
-              aria-selected="true"
+              role="radio"
+              aria-checked="true"
+              tabindex="0"
             >
               Convert
             </button>
@@ -181,8 +144,9 @@
               type="button"
               class="px-3 py-1.5 rounded-full font-medium text-slate-200/70 hover:text-slate-100"
               data-mode="resize"
-              role="tab"
-              aria-selected="false"
+              role="radio"
+              aria-checked="false"
+              tabindex="-1"
             >
               Resize
             </button>
@@ -190,8 +154,9 @@
               type="button"
               class="px-3 py-1.5 rounded-full font-medium text-slate-200/70 hover:text-slate-100"
               data-mode="both"
-              role="tab"
-              aria-selected="false"
+              role="radio"
+              aria-checked="false"
+              tabindex="-1"
             >
               Resize + Convert
             </button>
@@ -244,8 +209,8 @@
               </div>
             </div>
             <div class="flex items-center justify-between pt-1">
-              <label
-                for="lockAspect"
+              <span
+                id="lockAspectLabel"
                 class="flex items-center gap-2 text-[11px] font-medium text-slate-300"
               >
                 <span
@@ -257,16 +222,17 @@
                   ></span>
                 </span>
                 Lock aspect ratio
-              </label>
+              </span>
               <button
                 id="lockAspect"
                 type="button"
-                class="relative inline-flex h-5 w-9 items-center rounded-full bg-slate-700 transition data-[state=on]:bg-emerald-500"
+                class="group relative inline-flex h-5 w-9 items-center rounded-full bg-slate-700 transition data-[state=on]:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
                 data-state="on"
                 aria-pressed="true"
+                aria-labelledby="lockAspectLabel"
               >
                 <span
-                  class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition translate-x-4 data-[state=on]:translate-x-4 data-[state=off]:translate-x-1"
+                  class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition translate-x-1 group-data-[state=on]:translate-x-4"
                 ></span>
               </button>
             </div>
@@ -324,32 +290,35 @@
               </div>
             </div>
 
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
-              <div class="flex gap-2">
-                <button
-                  id="convertBtn"
-                  type="button"
-                  class="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-emerald-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:bg-emerald-500/50 disabled:text-emerald-950/60"
-                >
-                  <span>Run Pipeline (Prepare ZIP)</span>
-                </button>
-                <button
-                  id="downloadZipBtn"
-                  type="button"
-                  class="inline-flex items-center justify-center rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-400"
-                  disabled
-                >
-                  <span>Download All as ZIP</span>
-                </button>
-              </div>
-              <p class="text-[11px] sm:text-xs text-slate-400">
-                The pipeline will process images sequentially for better
-                stability on low-end devices. When finished, download a single
-                ZIP containing all optimized images.
-              </p>
-            </div>
           </div>
         </div>
+
+        <!-- Actions sit outside the mode panels: every mode needs them, and
+             resize-only hides #convertControls. -->
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+            <div class="flex gap-2">
+              <button
+                id="convertBtn"
+                type="button"
+                class="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-emerald-950 shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:bg-emerald-500/50 disabled:text-emerald-950/60"
+              >
+                <span>Run Pipeline (Prepare ZIP)</span>
+              </button>
+              <button
+                id="downloadZipBtn"
+                type="button"
+                class="inline-flex items-center justify-center rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-800/60 disabled:text-slate-400"
+                disabled
+              >
+                <span>Download All as ZIP</span>
+              </button>
+            </div>
+            <p class="text-[11px] sm:text-xs text-slate-400">
+              The pipeline will process images sequentially for better
+              stability on low-end devices. When finished, download a single
+              ZIP containing all optimized images.
+            </p>
+          </div>
       </section>
 
       <!-- Status & Spinner -->
@@ -390,13 +359,6 @@
           role="alert"
         ></div>
       </section>
-
-      <!-- Hidden canvas used for conversion -->
-      <canvas
-        id="hiddenCanvas"
-        class="hidden"
-        aria-hidden="true"
-      ></canvas>
     </main>
 
     <script type="module" src="./src/main.js"></script>
