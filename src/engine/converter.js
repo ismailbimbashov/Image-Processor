@@ -99,7 +99,7 @@ export function convertCanvasToBlob(
       }
       const blob = new Blob([buffer], { type: mimeString });
       handleBlob(blob);
-    } catch (error) {
+    } catch {
       reject(
         new Error(
           "Conversion is not supported in this browser for the selected format.",

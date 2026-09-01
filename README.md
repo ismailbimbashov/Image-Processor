@@ -45,6 +45,8 @@ The code is organised so that the **image pipeline never touches the DOM**, and 
 
 ```
 index.html              # markup + Tailwind classes
+vite.config.js          # build, PWA manifest/SW, strict CSP injection
+eslint.config.js        # flat config: browser, worker, Node and config envs
 public/favicon.png      # static passthrough asset (+ PWA icons)
 src/
 ├── main.js             # composition root: state, Worker orchestration, wiring
@@ -52,7 +54,7 @@ src/
 ├── ui/
 │   ├── dom.js          #   event binding (upload, drag/drop, delegation)
 │   ├── renderer.js     #   DOM rendering, object-URL previews, form reads
-│   └── tabs.js         #   mode tabs (convert / resize / both)
+│   └── tabs.js         #   mode radio group (convert / resize / both)
 ├── engine/             # genuinely pure image pipeline — no DOM, no app state
 │   ├── worker.js       #   Web Worker entry: runs the pipeline off-thread
 │   ├── processor.js    #   sequential batch orchestration (createImageBitmap)
@@ -64,6 +66,13 @@ src/
     ├── zipper.js       #   filename sanitisation, dedup, shared ZIP assembly
     ├── toast.js        #   non-blocking notifications
     └── errorHandler.js #   centralised user-facing messages
+tests/
+├── unit/               # Node's built-in runner — no browser
+├── e2e/                # Playwright against the production build
+└── playwright.config.js
+.github/workflows/
+├── ci.yml              # lint + unit matrix (with build) + E2E
+└── deploy.yml          # verify, then publish dist/ to GitHub Pages
 ```
 
 | Layer | Responsibility | Boundary |
@@ -78,6 +87,7 @@ src/
 ```bash
 npm install        # install dependencies
 npm run dev        # Vite dev server with hot reload
+npm run lint       # ESLint across src/, tests/ and the configs
 ```
 
 For a production bundle (minified, hashed assets, strict CSP injected):
@@ -139,17 +149,36 @@ APP_URL=http://localhost:5500/ npx playwright test
 | **Capability detection** | Formats the browser can't encode are dropped from the menu (AVIF disappears in Chromium); the rest survive. |
 | **Safe default** | The selected format is always one the browser can actually encode. |
 | Resize + Convert | The combined mode produces a file with a valid signature. |
-| Delete | Removing the only image restores the empty state. |
+| **Resize-only** | The mode is runnable, and the output keeps its original format (checked by signature). |
+| **Actions reachable** | Run Pipeline and Download stay visible in all three modes. |
+| **Mode switch a11y** | The switch is a radio group with arrow-key navigation and a roving tabindex. |
+| **Aspect lock** | The toggle is named, and its knob actually follows its state. |
+| Delete | Removing an image uses a two-click inline confirm, and is locked while a batch runs. |
 
 ## 🔄 Continuous Integration
 
 Every push and pull request to `main` runs via GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
-- **Unit job** — the dependency-free suite on Node 18, 20, and 22.
-- **E2E job** — installs Chromium and runs the full Playwright suite against a freshly served copy of the app; the HTML report is uploaded as a build artifact.
+- **Lint job** — ESLint across `src/`, `tests/` and the build configuration.
+- **Unit job** — the suite on Node 18, 20, and 22, each followed by a production build so a broken bundle cannot pass unnoticed.
+- **E2E job** — installs Chromium (cached by Playwright version) and runs the full suite against the real production build; the HTML report is uploaded as an artifact even on failure.
 
-So both the pure logic *and* the real-browser pipeline are verified on every push.
+So the pure logic, the bundle *and* the real-browser pipeline are verified on every push.
+
+## 🚀 Deployment
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds the bundle and publishes `dist/` to GitHub Pages on every push to `main`, after lint and the unit suite pass. It can also be triggered by hand from the Actions tab.
+
+**It stays inert until Pages is enabled**: repository **Settings → Pages → Source: GitHub Actions**. Because `vite.config.js` sets `base: "./"`, the same build works from a project sub-path or a domain root, so no configuration changes when you move hosts.
+
+## 🤝 Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the architectural rule, where tests belong, and the list of things that are easy to break. Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md). The short version:
+
+```bash
+npm run lint && npm test && npm run test:e2e
+```
 
 ## 📄 License
 
-MIT License This project is free to use and open source under the MIT License – feel free to fork, modify, and distribute it as you wish.
+MIT — see [LICENSE](LICENSE). Free to use, fork, modify and distribute as you wish.

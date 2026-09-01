@@ -188,6 +188,50 @@ test("resize + convert mode produces a file with a valid signature", async ({
   expect(SIGNATURES.png(bytes)).toBe(true);
 });
 
+test("resize-only mode keeps the actions reachable and preserves the format", async ({
+  page,
+}) => {
+  await page.locator("#fileInput").setInputFiles(pngFile());
+  await page.locator("#previewGrid > div").first().waitFor();
+
+  await page.locator('[data-mode="resize"]').click();
+
+  // The convert panel steps aside in this mode, but the actions must not go
+  // with it: they used to live inside that panel, which left resize-only with
+  // no way to start a batch at all.
+  await expect(page.locator("#convertControls")).toBeHidden();
+  await expect(page.locator("#convertBtn")).toBeVisible();
+  await expect(page.locator("#convertBtn")).toBeEnabled();
+
+  await page.locator("#resizeWidth").fill("1");
+  await page.locator("#convertBtn").click();
+
+  const { names, zip } = await downloadZip(page);
+  expect(names).toEqual(["photo.png"]);
+
+  // Resize-only keeps the original format, so the bytes must still be a PNG.
+  const bytes = await zip.file(names[0]).async("nodebuffer");
+  expect(
+    SIGNATURES.png(bytes),
+    `expected PNG bytes, got: ${describeBytes(bytes)}`,
+  ).toBe(true);
+});
+
+test("the actions stay reachable in every mode", async ({ page }) => {
+  for (const mode of ["convert", "resize", "both"]) {
+    await page.locator(`[data-mode="${mode}"]`).click();
+
+    await expect(
+      page.locator("#convertBtn"),
+      `Run Pipeline must be visible in "${mode}" mode`,
+    ).toBeVisible();
+    await expect(
+      page.locator("#downloadZipBtn"),
+      `Download must be visible in "${mode}" mode`,
+    ).toBeVisible();
+  }
+});
+
 test("an over-limit resize is clamped, not hung, and still downloads", async ({
   page,
 }) => {
@@ -287,18 +331,54 @@ test("delete controls are locked while a batch is processing", async ({
   ).toHaveAttribute("aria-disabled", "false");
 });
 
-test("mode tabs support arrow-key navigation", async ({ page }) => {
+test("the mode switch is a radio group with arrow-key navigation", async ({
+  page,
+}) => {
   const convertTab = page.locator('[data-mode="convert"]');
   const resizeTab = page.locator('[data-mode="resize"]');
 
+  await expect(page.locator("#modeTabs")).toHaveAttribute(
+    "role",
+    "radiogroup",
+  );
+  await expect(convertTab).toHaveAttribute("role", "radio");
+
   await convertTab.focus();
-  await expect(convertTab).toHaveAttribute("aria-selected", "true");
+  await expect(convertTab).toHaveAttribute("aria-checked", "true");
 
   await page.keyboard.press("ArrowRight");
 
   await expect(resizeTab).toBeFocused();
-  await expect(resizeTab).toHaveAttribute("aria-selected", "true");
-  await expect(convertTab).toHaveAttribute("aria-selected", "false");
+  await expect(resizeTab).toHaveAttribute("aria-checked", "true");
+  await expect(convertTab).toHaveAttribute("aria-checked", "false");
+
+  // Roving tabindex: the group is a single stop in the Tab order.
+  await expect(resizeTab).toHaveAttribute("tabindex", "0");
+  await expect(convertTab).toHaveAttribute("tabindex", "-1");
+});
+
+test("the aspect lock is a named toggle whose knob follows its state", async ({
+  page,
+}) => {
+  await page.locator('[data-mode="resize"]').click();
+
+  const toggle = page.locator("#lockAspect");
+  const knob = toggle.locator("span");
+
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle).toHaveAttribute("aria-labelledby", "lockAspectLabel");
+
+  const offsetWhenOn = await knob.evaluate(
+    (el) => el.getBoundingClientRect().left,
+  );
+
+  await toggle.click();
+
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  // The knob previously carried an unconditional translate, so it never moved.
+  await expect
+    .poll(() => knob.evaluate((el) => el.getBoundingClientRect().left))
+    .toBeLessThan(offsetWhenOn);
 });
 
 /* ------------------------------------------------------------------ *

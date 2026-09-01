@@ -165,6 +165,8 @@ export async function processFilesSequential(
       try {
         onProgress?.(index, total, file);
 
+        // Deliberate: images are decoded one at a time to cap peak memory.
+        // eslint-disable-next-line no-await-in-loop
         const img = await decodeFile(file);
 
         drawImageToCanvas(canvas, ctx, img);
@@ -181,6 +183,9 @@ export async function processFilesSequential(
         // Execute pipeline steps sequentially for this image.
         for (const step of pipeline) {
           // Allow steps to use and mutate `state`.
+          // Deliberate: each step mutates the shared canvas, so they must not
+          // overlap.
+          // eslint-disable-next-line no-await-in-loop
           await step(state);
         }
 
@@ -206,6 +211,8 @@ export async function processFilesSequential(
       // Yield a macro-task between images so the browser can paint the
       // progress update and stay responsive during a large batch. Canvas work
       // is synchronous and would otherwise monopolise the main thread.
+      // Deliberate: the yield only has value if it happens between images.
+      // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => {
         setTimeout(resolve, 0);
       });

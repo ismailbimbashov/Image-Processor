@@ -36,9 +36,12 @@ export function initTabs({ onModeChange } = {}) {
     tabButtons.forEach((btn) => {
       const btnMode = btn.getAttribute("data-mode");
       const isActive = btnMode === mode;
-      btn.setAttribute("aria-selected", isActive ? "true" : "false");
-      // Roving tabindex: only the active tab is in the Tab order; the rest are
-      // reached with the arrow keys (WAI-ARIA tabs pattern).
+      // A radio group, not a tab list: "Resize + Convert" shows two panels at
+      // once, and role="tab" would promise a tabpanel relationship that does
+      // not exist here.
+      btn.setAttribute("aria-checked", isActive ? "true" : "false");
+      // Roving tabindex: only the checked radio is in the Tab order; the rest
+      // are reached with the arrow keys.
       btn.tabIndex = isActive ? 0 : -1;
       btn.classList.toggle(
         "bg-slate-900/70",
@@ -75,7 +78,7 @@ export function initTabs({ onModeChange } = {}) {
       setActiveTab(mode);
     });
 
-    // Keyboard support for the tablist: arrows move (and activate) with
+    // Keyboard support for the radio group: arrows move (and select) with
     // wrap-around; Home/End jump to the ends.
     btn.addEventListener("keydown", (event) => {
       switch (event.key) {

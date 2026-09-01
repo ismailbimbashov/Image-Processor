@@ -39,6 +39,8 @@ export async function detectEncodableFormats(createCanvas, formats) {
     const mimeType = mimeFromFormat(format);
 
     try {
+      // Deliberate: the probe reuses one canvas, so the encodes cannot overlap.
+      // eslint-disable-next-line no-await-in-loop
       const blob = await new Promise((resolve) => {
         canvas.toBlob(resolve, mimeType, 0.8);
       });
