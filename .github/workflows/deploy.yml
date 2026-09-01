@@ -72,8 +72,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # enablement: true creates the Pages site through the API on the first
+      # run, so the workflow does not 404 on a repository where Pages has never
+      # been switched on by hand. It is a no-op once the site exists.
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       # Only dist/ is published: the service worker, manifest and hashed assets
       # as Vite emitted them, and nothing else from the repository.
